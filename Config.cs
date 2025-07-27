@@ -41,7 +41,7 @@ public static class Config
                 AllowedGrantTypes   = GrantTypes.Code,
                 RequirePkce         = true,
                 RequireClientSecret = false,
-                RedirectUris        = { "com.bellwood.mobile://callback" },
+                RedirectUris        = { "com.bellwoodglobal.mobile://callback" },
                 PostLogoutRedirectUris = { "com.bellwood.mobile://signout-callback" },
                 AllowedScopes       = { "openid", "profile", "ride.api", "rating.api" },
                 AllowOfflineAccess  = true
