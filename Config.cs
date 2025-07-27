@@ -42,7 +42,7 @@ public static class Config
                 RequirePkce         = true,
                 RequireClientSecret = false,
                 RedirectUris        = { "com.bellwoodglobal.mobile://callback" },
-                PostLogoutRedirectUris = { "com.bellwood.mobile://signout-callback" },
+                PostLogoutRedirectUris = { "com.bellwoodglobal.mobile://signout-callback" },
                 AllowedScopes       = { "openid", "profile", "ride.api", "rating.api" },
                 AllowOfflineAccess  = true
             },
