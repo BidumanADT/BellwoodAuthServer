@@ -1,102 +1,60 @@
-using Microsoft.EntityFrameworkCore;
-using OpenIddict.Abstractions;
-using OpenIddict.Validation.AspNetCore;
-using static OpenIddict.Abstractions.OpenIddictConstants;
+// Program.cs
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 
-static WebApplicationBuilder ConfigureServices(this WebApplicationBuilder builder)
+var builder = WebApplication.CreateBuilder(args);
+
+// 1) A very simple in-memory “user store”
+var users = new Dictionary<string, string> { ["alice"] = "password", ["bob"] = "password" };
+
+// 2) JWT settings
+var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("super-long-jwt-signing-secret-1234"));
+var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+// 3) Add Authentication
+builder.Services
+  .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+  .AddJwtBearer(options =>
+  {
+      options.TokenValidationParameters = new TokenValidationParameters
+      {
+          ValidateIssuer = false,
+          ValidateAudience = false,
+          ValidateLifetime = true,
+          IssuerSigningKey = key
+      };
+  });
+
+builder.Services.AddAuthorization();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+var app = builder.Build();
+app.UseSwagger();
+app.UseSwaggerUI();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+// 4) Login endpoint: accepts JSON { username, password }, returns { token }
+app.MapPost("/login", (LoginRequest req) =>
 {
-    // 1. EF Core + OpenIddict stores
-    builder.Services.AddDbContext<AuthDbContext>(options =>
-    {
-        options.UseSqlite("Data Source=auth.db");
-        // register the OpenIddict entities/models
-        options.UseOpenIddict();
-    });
+    if (!users.TryGetValue(req.Username, out var pw) || pw != req.Password)
+        return Results.Unauthorized();
 
-    // 2. OpenIddict
-    builder.Services.AddOpenIddict()
-        .AddCore(options =>
-        {
-            options.UseEntityFrameworkCore()
-                   .UseDbContext<AuthDbContext>();
-        })
-        .AddServer(options =>
-        {
-            // Enable the authorization code flow + PKCE
-            options.AllowAuthorizationCodeFlow()
-                   .RequireProofKeyForCodeExchange();
+    var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
+        claims: new[] { new System.Security.Claims.Claim("sub", req.Username) },
+        expires: DateTime.UtcNow.AddHours(1),
+        signingCredentials: creds);
 
-            // Authorization endpoints
-            options.SetAuthorizationEndpointUris("/connect/authorize")
-                   .SetTokenEndpointUris("/connect/token")
-                   .SetUserinfoEndpointUris("/connect/userinfo");
+    var tokenString = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler()
+        .WriteToken(token);
 
-            // Issue JSON Web Tokens
-            options.AddDevelopmentEncryptionCertificate()
-                   .AddDevelopmentSigningCertificate();
+    return Results.Ok(new { token = tokenString });
+});
 
-            // ASP-NET integration
-            options.UseAspNetCore()
-                   .EnableAuthorizationEndpointPassthrough()
-                   .EnableTokenEndpointPassthrough()
-                   .DisableTransportSecurityRequirement(); // only for dev!
-        })
-        .AddValidation(options =>
-        {
-            // tell the validation handler to use our local server instance
-            options.UseLocalServer();
-            options.UseAspNetCore();
-        });
+// DTO
+record LoginRequest(string Username, string Password);
 
-    // 3. MVC Controllers (for the authorize/token endpoints)
-    builder.Services.AddControllersWithViews();
-
-    return builder;
-}
-
-static WebApplication ConfigurePipeline(this WebApplication app)
-{
-    app.UseSerilogRequestLogging();
-    app.UseRouting();
-
-    // OpenIddict’s endpoints are now handled as MVC controllers
-    app.UseAuthentication();
-    app.UseAuthorization();
-
-    app.MapControllers();
-
-    // Seed the database with a test client & scope
-    using var scope = app.Services.CreateScope();
-    var context = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
-    context.Database.Migrate();
-
-    var apps = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
-    if (await apps.FindByClientIdAsync("bellwood.passenger") == null)
-    {
-        await apps.CreateAsync(new OpenIddictApplicationDescriptor
-        {
-            ClientId = "bellwood.passenger",
-            RedirectUris = { new Uri("com.bellwoodglobal.mobile://callback") },
-            Permissions =
-            {
-                Permissions.Endpoints.Authorization,
-                Permissions.Endpoints.Token,
-                Permissions.GrantTypes.AuthorizationCode,
-                Permissions.ResponseTypes.Code,
-                Permissions.Prefixes.Scope + "ride.api"
-            }
-        });
-    }
-
-    var scopes = scope.ServiceProvider.GetRequiredService<IOpenIddictScopeManager>();
-    if (await scopes.FindByNameAsync("ride.api") == null)
-    {
-        await scopes.CreateAsync(new OpenIddictScopeDescriptor
-        {
-            Name = "ride.api",
-            Resources = { "resource_server" }
-        });
-    }
-
-    return app;
-}
+app.Run();
