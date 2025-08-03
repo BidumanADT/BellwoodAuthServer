@@ -1,7 +1,7 @@
-// Program.cs
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using BellwoodAuthServer.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -53,8 +53,5 @@ app.MapPost("/login", (LoginRequest req) =>
 
     return Results.Ok(new { token = tokenString });
 });
-
-// DTO
-record LoginRequest(string Username, string Password);
 
 app.Run();
