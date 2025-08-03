@@ -1,4 +1,4 @@
-namespace QuickstartAuthServer.Pages.Grants;
+namespace BellwoodAuthServer.Pages.Grants;
 
 public class ViewModel
 {

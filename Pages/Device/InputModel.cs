@@ -1,4 +1,4 @@
-namespace QuickstartAuthServer.Pages.Device;
+namespace BellwoodAuthServer.Pages.Device;
 
 public class InputModel
 {

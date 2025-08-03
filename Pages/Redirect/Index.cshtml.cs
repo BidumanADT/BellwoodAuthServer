@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
-namespace QuickstartAuthServer.Pages.Redirect;
+namespace BellwoodAuthServer.Pages.Redirect;
 
 [AllowAnonymous]
 public class IndexModel : PageModel

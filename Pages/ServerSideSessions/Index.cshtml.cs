@@ -4,7 +4,7 @@ using Duende.IdentityServer.Stores;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
-namespace QuickstartAuthServer.Pages.ServerSideSessions;
+namespace BellwoodAuthServer.Pages.ServerSideSessions;
 
 public class IndexModel : PageModel
 {

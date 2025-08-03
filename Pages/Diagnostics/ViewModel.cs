@@ -3,7 +3,7 @@ using System.Text.Json;
 using Duende.IdentityModel;
 using Microsoft.AspNetCore.Authentication;
 
-namespace QuickstartAuthServer.Pages.Diagnostics;
+namespace BellwoodAuthServer.Pages.Diagnostics;
 
 public class ViewModel
 {

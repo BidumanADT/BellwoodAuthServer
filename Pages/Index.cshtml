@@ -1,5 +1,5 @@
 @page
-@model QuickstartAuthServer.Pages.Home.Index
+@model BellwoodAuthServer.Pages.Home.Index
 
 <div class="welcome-page">
     <h1>
@@ -35,12 +35,12 @@
 
     @if(Model.License != null)
     {
-        <h2>License</h2>
-        <dl>
-            <dt>Serial Number</dt>
-            <dd>@Model.License.SerialNumber</dd>
-            <dt>Expiration</dt>
-            <dd>@Model.License.Expiration!.Value.ToLongDateString()</dd>
-        </dl>
+    <h2>License</h2>
+    <dl>
+        <dt>Serial Number</dt>
+        <dd>@Model.License.SerialNumber</dd>
+        <dt>Expiration</dt>
+        <dd>@Model.License.Expiration!.Value.ToLongDateString()</dd>
+    </dl>
     }
 </div>

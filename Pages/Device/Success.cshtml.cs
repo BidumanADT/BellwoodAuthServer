@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
-namespace QuickstartAuthServer.Pages.Device;
+namespace BellwoodAuthServer.Pages.Device;
 
 [SecurityHeaders]
 [Authorize]

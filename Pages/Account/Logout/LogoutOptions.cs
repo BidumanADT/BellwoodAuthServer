@@ -1,4 +1,4 @@
-namespace QuickstartAuthServer.Pages.Logout;
+namespace BellwoodAuthServer.Pages.Logout;
 
 public static class LogoutOptions
 {

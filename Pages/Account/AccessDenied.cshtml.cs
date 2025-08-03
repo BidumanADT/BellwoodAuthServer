@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
-namespace QuickstartAuthServer.Pages.Account;
+namespace BellwoodAuthServer.Pages.Account;
 
 public class AccessDeniedModel : PageModel
 {

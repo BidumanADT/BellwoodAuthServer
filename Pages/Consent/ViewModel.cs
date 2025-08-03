@@ -1,4 +1,4 @@
-namespace QuickstartAuthServer.Pages.Consent;
+namespace BellwoodAuthServer.Pages.Consent;
 
 public class ViewModel
 {

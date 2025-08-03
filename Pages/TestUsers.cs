@@ -4,7 +4,7 @@ using Duende.IdentityModel;
 using Duende.IdentityServer;
 using Duende.IdentityServer.Test;
 
-namespace QuickstartAuthServer;
+namespace BellwoodAuthServer;
 
 public static class TestUsers
 {

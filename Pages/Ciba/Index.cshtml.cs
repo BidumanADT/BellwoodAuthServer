@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
-namespace QuickstartAuthServer.Pages.Ciba;
+namespace BellwoodAuthServer.Pages.Ciba;
 
 [AllowAnonymous]
 [SecurityHeaders]

@@ -1,4 +1,4 @@
-namespace QuickstartAuthServer.Pages.Ciba;
+namespace BellwoodAuthServer.Pages.Ciba;
 
 public static class ConsentOptions
 {

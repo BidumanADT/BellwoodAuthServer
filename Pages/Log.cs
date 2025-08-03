@@ -1,4 +1,4 @@
-namespace QuickstartAuthServer.Pages;
+namespace BellwoodAuthServer.Pages;
 
 internal static class Log
 {

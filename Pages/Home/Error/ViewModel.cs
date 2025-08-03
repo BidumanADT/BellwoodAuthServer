@@ -1,6 +1,6 @@
 using Duende.IdentityServer.Models;
 
-namespace QuickstartAuthServer.Pages.Error;
+namespace BellwoodAuthServer.Pages.Error;
 
 public class ViewModel
 {

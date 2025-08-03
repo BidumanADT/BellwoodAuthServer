@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace QuickstartAuthServer.Pages.Login;
+namespace BellwoodAuthServer.Pages.Login;
 
 public class InputModel
 {

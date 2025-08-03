@@ -3,7 +3,7 @@ using Duende.IdentityServer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
-namespace QuickstartAuthServer.Pages.Home;
+namespace BellwoodAuthServer.Pages.Home;
 
 [AllowAnonymous]
 public class Index : PageModel

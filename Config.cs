@@ -3,7 +3,7 @@ using Duende.IdentityServer;
 using Duende.IdentityServer.Models;
 using Duende.IdentityServer.Test;
 
-namespace QuickstartAuthServer;
+namespace BellwoodAuthServer;
 
 public static class Config
 {

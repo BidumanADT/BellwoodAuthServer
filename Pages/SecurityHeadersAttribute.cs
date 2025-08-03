@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 
-namespace QuickstartAuthServer.Pages;
+namespace BellwoodAuthServer.Pages;
 
 public sealed class SecurityHeadersAttribute : ActionFilterAttribute
 {

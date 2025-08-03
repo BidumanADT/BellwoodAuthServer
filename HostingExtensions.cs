@@ -4,7 +4,7 @@ using Serilog;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace QuickstartAuthServer
+namespace BellwoodAuthServer
 {
     internal static class HostingExtensions
     {
