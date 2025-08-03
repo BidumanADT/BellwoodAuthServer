@@ -1,59 +1,102 @@
-using System.Globalization;
-using System.Text;
-using Duende.IdentityServer.Licensing;
-using QuickstartAuthServer;
-using Serilog;
+using Microsoft.EntityFrameworkCore;
+using OpenIddict.Abstractions;
+using OpenIddict.Validation.AspNetCore;
+using static OpenIddict.Abstractions.OpenIddictConstants;
 
-Log.Logger = new LoggerConfiguration()
-    .WriteTo.Console(formatProvider: CultureInfo.InvariantCulture)
-    .CreateBootstrapLogger();
-
-Log.Information("Starting up");
-
-try
+static WebApplicationBuilder ConfigureServices(this WebApplicationBuilder builder)
 {
-    var builder = WebApplication.CreateBuilder(args);
-
-    builder.Host.UseSerilog((ctx, lc) => lc
-        .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level}] {SourceContext}{NewLine}{Message:lj}{NewLine}{Exception}{NewLine}", formatProvider: CultureInfo.InvariantCulture)
-        .Enrich.FromLogContext()
-        .ReadFrom.Configuration(ctx.Configuration));
-
-    var app = builder
-        .ConfigureServices()
-        .ConfigurePipeline();
-
-    if (app.Environment.IsDevelopment())
+    // 1. EF Core + OpenIddict stores
+    builder.Services.AddDbContext<AuthDbContext>(options =>
     {
-        app.Lifetime.ApplicationStopping.Register(() =>
+        options.UseSqlite("Data Source=auth.db");
+        // register the OpenIddict entities/models
+        options.UseOpenIddict();
+    });
+
+    // 2. OpenIddict
+    builder.Services.AddOpenIddict()
+        .AddCore(options =>
         {
-            var usage = app.Services.GetRequiredService<LicenseUsageSummary>();
-            Console.Write(Summary(usage));
-            Console.ReadKey();
+            options.UseEntityFrameworkCore()
+                   .UseDbContext<AuthDbContext>();
+        })
+        .AddServer(options =>
+        {
+            // Enable the authorization code flow + PKCE
+            options.AllowAuthorizationCodeFlow()
+                   .RequireProofKeyForCodeExchange();
+
+            // Authorization endpoints
+            options.SetAuthorizationEndpointUris("/connect/authorize")
+                   .SetTokenEndpointUris("/connect/token")
+                   .SetUserinfoEndpointUris("/connect/userinfo");
+
+            // Issue JSON Web Tokens
+            options.AddDevelopmentEncryptionCertificate()
+                   .AddDevelopmentSigningCertificate();
+
+            // ASP-NET integration
+            options.UseAspNetCore()
+                   .EnableAuthorizationEndpointPassthrough()
+                   .EnableTokenEndpointPassthrough()
+                   .DisableTransportSecurityRequirement(); // only for dev!
+        })
+        .AddValidation(options =>
+        {
+            // tell the validation handler to use our local server instance
+            options.UseLocalServer();
+            options.UseAspNetCore();
+        });
+
+    // 3. MVC Controllers (for the authorize/token endpoints)
+    builder.Services.AddControllersWithViews();
+
+    return builder;
+}
+
+static WebApplication ConfigurePipeline(this WebApplication app)
+{
+    app.UseSerilogRequestLogging();
+    app.UseRouting();
+
+    // OpenIddict’s endpoints are now handled as MVC controllers
+    app.UseAuthentication();
+    app.UseAuthorization();
+
+    app.MapControllers();
+
+    // Seed the database with a test client & scope
+    using var scope = app.Services.CreateScope();
+    var context = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+    context.Database.Migrate();
+
+    var apps = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
+    if (await apps.FindByClientIdAsync("bellwood.passenger") == null)
+    {
+        await apps.CreateAsync(new OpenIddictApplicationDescriptor
+        {
+            ClientId = "bellwood.passenger",
+            RedirectUris = { new Uri("com.bellwoodglobal.mobile://callback") },
+            Permissions =
+            {
+                Permissions.Endpoints.Authorization,
+                Permissions.Endpoints.Token,
+                Permissions.GrantTypes.AuthorizationCode,
+                Permissions.ResponseTypes.Code,
+                Permissions.Prefixes.Scope + "ride.api"
+            }
         });
     }
 
-    app.Run();
-}
-catch (Exception ex) when (ex is not HostAbortedException)
-{
-    Log.Fatal(ex, "Unhandled exception");
-}
-finally
-{
-    Log.Information("Shut down complete");
-    Log.CloseAndFlush();
-}
+    var scopes = scope.ServiceProvider.GetRequiredService<IOpenIddictScopeManager>();
+    if (await scopes.FindByNameAsync("ride.api") == null)
+    {
+        await scopes.CreateAsync(new OpenIddictScopeDescriptor
+        {
+            Name = "ride.api",
+            Resources = { "resource_server" }
+        });
+    }
 
-static string Summary(LicenseUsageSummary usage)
-{
-    var sb = new StringBuilder();
-    sb.AppendLine("IdentityServer Usage Summary:");
-    sb.AppendLine(CultureInfo.InvariantCulture, $"  License: {usage.LicenseEdition}");
-    var features = usage.FeaturesUsed.Count > 0 ? string.Join(", ", usage.FeaturesUsed) : "None";
-    sb.AppendLine(CultureInfo.InvariantCulture, $"  Business and Enterprise Edition Features Used: {features}");
-    sb.AppendLine(CultureInfo.InvariantCulture, $"  {usage.ClientsUsed.Count} Client Id(s) Used");
-    sb.AppendLine(CultureInfo.InvariantCulture, $"  {usage.IssuersUsed.Count} Issuer(s) Used");
-
-    return sb.ToString();
+    return app;
 }
