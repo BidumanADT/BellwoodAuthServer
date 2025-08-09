@@ -1,59 +1,60 @@
-using System.Globalization;
+using System.Security.Claims;
 using System.Text;
-using Duende.IdentityServer.Licensing;
-using QuickstartAuthServer;
-using Serilog;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using BellwoodAuthServer.Models;
 
-Log.Logger = new LoggerConfiguration()
-    .WriteTo.Console(formatProvider: CultureInfo.InvariantCulture)
-    .CreateBootstrapLogger();
+var builder = WebApplication.CreateBuilder(args);
 
-Log.Information("Starting up");
-
-try
+// 1) In-memory users
+var users = new Dictionary<string, string>
 {
-    var builder = WebApplication.CreateBuilder(args);
+    ["alice"] = "password",
+    ["bob"] = "password"
+};
 
-    builder.Host.UseSerilog((ctx, lc) => lc
-        .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level}] {SourceContext}{NewLine}{Message:lj}{NewLine}{Exception}{NewLine}", formatProvider: CultureInfo.InvariantCulture)
-        .Enrich.FromLogContext()
-        .ReadFrom.Configuration(ctx.Configuration));
+// 2) JWT signing key + credentials
+var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("super-long-jwt-signing-secret-1234"));
+var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-    var app = builder
-        .ConfigureServices()
-        .ConfigurePipeline();
+// 3) Authentication + Swagger
+builder.Services
+  .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+  .AddJwtBearer(o => {
+      o.TokenValidationParameters = new TokenValidationParameters
+      {
+          ValidateIssuer = false,
+          ValidateAudience = false,
+          ValidateLifetime = true,
+          IssuerSigningKey = key
+      };
+  });
+builder.Services.AddAuthorization();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 
-    if (app.Environment.IsDevelopment())
-    {
-        app.Lifetime.ApplicationStopping.Register(() =>
-        {
-            var usage = app.Services.GetRequiredService<LicenseUsageSummary>();
-            Console.Write(Summary(usage));
-            Console.ReadKey();
-        });
-    }
+var app = builder.Build();
 
-    app.Run();
-}
-catch (Exception ex) when (ex is not HostAbortedException)
-{
-    Log.Fatal(ex, "Unhandled exception");
-}
-finally
-{
-    Log.Information("Shut down complete");
-    Log.CloseAndFlush();
-}
+// 4) Middleware
+app.UseSwagger();
+app.UseSwaggerUI();
+app.UseAuthentication();
+app.UseAuthorization();
 
-static string Summary(LicenseUsageSummary usage)
-{
-    var sb = new StringBuilder();
-    sb.AppendLine("IdentityServer Usage Summary:");
-    sb.AppendLine(CultureInfo.InvariantCulture, $"  License: {usage.LicenseEdition}");
-    var features = usage.FeaturesUsed.Count > 0 ? string.Join(", ", usage.FeaturesUsed) : "None";
-    sb.AppendLine(CultureInfo.InvariantCulture, $"  Business and Enterprise Edition Features Used: {features}");
-    sb.AppendLine(CultureInfo.InvariantCulture, $"  {usage.ClientsUsed.Count} Client Id(s) Used");
-    sb.AppendLine(CultureInfo.InvariantCulture, $"  {usage.IssuersUsed.Count} Issuer(s) Used");
+// 5) Login endpoint (POST /login)
+app.MapPost("/login", (LoginRequest req) => {
+    if (!users.TryGetValue(req.Username, out var pw) || pw != req.Password)
+        return Results.Unauthorized();
 
-    return sb.ToString();
-}
+    var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
+      claims: new[] { new Claim("sub", req.Username) },
+      expires: DateTime.UtcNow.AddHours(1),
+      signingCredentials: creds);
+
+    var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler()
+                  .WriteToken(token);
+
+    return Results.Ok(new { token = jwt });
+});
+
+app.Run();
