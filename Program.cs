@@ -5,10 +5,11 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using BellwoodAuthServer.Data;
+using BellwoodAuthServer.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Bind to the ports your tools expect
+// Bind to the ports
 builder.WebHost.UseUrls("https://localhost:5001", "http://localhost:5000");
 
 // 1) EF Core + Identity (SQLite)
@@ -49,6 +50,7 @@ builder.Services.AddAuthorization();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddSingleton<RefreshTokenStore>();
 
 var app = builder.Build();
 
@@ -78,8 +80,8 @@ app.UseAuthorization();
 app.MapControllers();
 
 
-// 5) Login endpoints
-app.MapPost("/login", async (UserManager<IdentityUser> um, LoginRequest req) =>
+// 5) JSON login endpoints (return access + refresh)
+app.MapPost("/login", async (UserManager<IdentityUser> um, RefreshTokenStore store, LoginRequest req) =>
 {
     var user = await um.FindByNameAsync(req.Username);
     if (user is null || !(await um.CheckPasswordAsync(user, req.Password)))
@@ -91,11 +93,13 @@ app.MapPost("/login", async (UserManager<IdentityUser> um, LoginRequest req) =>
         signingCredentials: creds);
 
     var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().WriteToken(token);
-    return Results.Ok(new { token = jwt });
-});
+    var refresh = store.Issue(user.UserName!); // rotate/issue dev refresh token
 
-// Alias to match your Postman/REST Client collection
-app.MapPost("/api/auth/login", async (UserManager<IdentityUser> um, LoginRequest req) =>
+    // CamelCase names are fine (Postman capture handles both camel and snake)
+    return Results.Ok(new { accessToken = jwt, refreshToken = refresh });
+}).AllowAnonymous(); // <-- optional but explicit
+
+app.MapPost("/api/auth/login", async (UserManager<IdentityUser> um, RefreshTokenStore store, LoginRequest req) =>
 {
     var user = await um.FindByNameAsync(req.Username);
     if (user is null || !(await um.CheckPasswordAsync(user, req.Password)))
@@ -107,8 +111,11 @@ app.MapPost("/api/auth/login", async (UserManager<IdentityUser> um, LoginRequest
         signingCredentials: creds);
 
     var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().WriteToken(token);
-    return Results.Ok(new { token = jwt });
-});
+    var refresh = store.Issue(user.UserName!);
+
+    // include both casings to make ANY client happy
+    return Results.Ok(new { accessToken = jwt, refreshToken = refresh, access_token = jwt, refresh_token = refresh });
+}).AllowAnonymous();
 
 // Health endpoints (anonymous)
 app.MapGet("/health", () => Results.Ok("ok")).AllowAnonymous();
