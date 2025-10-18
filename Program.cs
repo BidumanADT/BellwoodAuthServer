@@ -93,12 +93,20 @@ app.MapPost("/login", async (UserManager<IdentityUser> um, RefreshTokenStore sto
         signingCredentials: creds);
 
     var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().WriteToken(token);
-    var refresh = store.Issue(user.UserName!); // rotate/issue dev refresh token
+    var refresh = store.Issue(user.UserName!);
 
-    // CamelCase names are fine (Postman capture handles both camel and snake)
-    return Results.Ok(new { accessToken = jwt, refreshToken = refresh });
-}).AllowAnonymous(); // <-- optional but explicit
+    // add all casings so any client works
+    return Results.Ok(new
+    {
+        accessToken = jwt,
+        refreshToken = refresh,
+        access_token = jwt,
+        refresh_token = refresh,
+        token = jwt
+    });
+}).AllowAnonymous();
 
+// /api/auth/login (do the same if you haven’t already)
 app.MapPost("/api/auth/login", async (UserManager<IdentityUser> um, RefreshTokenStore store, LoginRequest req) =>
 {
     var user = await um.FindByNameAsync(req.Username);
@@ -113,8 +121,14 @@ app.MapPost("/api/auth/login", async (UserManager<IdentityUser> um, RefreshToken
     var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().WriteToken(token);
     var refresh = store.Issue(user.UserName!);
 
-    // include both casings to make ANY client happy
-    return Results.Ok(new { accessToken = jwt, refreshToken = refresh, access_token = jwt, refresh_token = refresh });
+    return Results.Ok(new
+    {
+        accessToken = jwt,
+        refreshToken = refresh,
+        access_token = jwt,
+        refresh_token = refresh,
+        token = jwt
+    });
 }).AllowAnonymous();
 
 // Health endpoints (anonymous)
