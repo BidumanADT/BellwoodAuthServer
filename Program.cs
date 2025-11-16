@@ -12,7 +12,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Bind to the ports
 builder.WebHost.UseUrls("https://localhost:5001", "http://localhost:5000");
 
-// 1) EF Core + Identity (SQLite)
+// EF Core + Identity (SQLite)
 builder.Services.AddDbContext<ApplicationDbContext>(opt =>
     opt.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
 
@@ -28,7 +28,7 @@ builder.Services
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddSignInManager();
 
-// 2) JWT signing key + validation (must match Rides API key)
+// JWT signing key + validation (must match Rides API key)
 var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("super-long-jwt-signing-secret-1234"));
 var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
@@ -54,7 +54,7 @@ builder.Services.AddSingleton<RefreshTokenStore>();
 
 var app = builder.Build();
 
-// 3) Auto-migrate + seed test users
+// Auto-migrate + seed test users
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -70,7 +70,7 @@ using (var scope = app.Services.CreateScope())
     await EnsureUser("bob", "password");
 }
 
-// 4) Pipeline
+// Pipeline
 app.UseHttpsRedirection();
 app.UseSwagger();
 app.UseSwaggerUI();
@@ -80,22 +80,43 @@ app.UseAuthorization();
 app.MapControllers();
 
 
-// 5) JSON login endpoints (return access + refresh)
-app.MapPost("/login", async (UserManager<IdentityUser> um, RefreshTokenStore store, LoginRequest req) =>
+// JSON login endpoints (return access + refresh)
+app.MapPost("/login", 
+    async (
+    UserManager<IdentityUser> um,
+    RefreshTokenStore store,
+    LoginRequest? req) =>
 {
+    if (req is null)
+    {
+        return Results.BadRequest(new { error = "Request body missing." });
+    }
+
+    if (string.IsNullOrWhiteSpace(req.Username) ||
+        string.IsNullOrWhiteSpace(req.Password))
+    {
+        return Results.BadRequest(new { error = "Username and password are required." });
+    }
+
     var user = await um.FindByNameAsync(req.Username);
     if (user is null || !(await um.CheckPasswordAsync(user, req.Password)))
+    {
+        // don't leak whether the user exists
         return Results.Unauthorized();
+    }
 
     var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
-        claims: new[] { new Claim("sub", user.UserName!), new Claim("uid", user.Id) },
+        claims: new[]
+        {
+            new Claim("sub", user.UserName!),
+            new Claim("uid", user.Id)
+        },
         expires: DateTime.UtcNow.AddHours(1),
         signingCredentials: creds);
 
     var jwt = new System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler().WriteToken(token);
     var refresh = store.Issue(user.UserName!);
 
-    // add all casings so any client works
     return Results.Ok(new
     {
         accessToken = jwt,
@@ -106,15 +127,35 @@ app.MapPost("/login", async (UserManager<IdentityUser> um, RefreshTokenStore sto
     });
 }).AllowAnonymous();
 
-// /api/auth/login (do the same if you haven’t already)
-app.MapPost("/api/auth/login", async (UserManager<IdentityUser> um, RefreshTokenStore store, LoginRequest req) =>
+app.MapPost("/api/auth/login", 
+    async (
+    UserManager<IdentityUser> um,
+    RefreshTokenStore store,
+    LoginRequest? req) =>
 {
+    if (req is null)
+    {
+        return Results.BadRequest(new { error = "Request body missing." });
+    }
+
+    if (string.IsNullOrWhiteSpace(req.Username) ||
+        string.IsNullOrWhiteSpace(req.Password))
+    {
+        return Results.BadRequest(new { error = "Username and password are required." });
+    }
+
     var user = await um.FindByNameAsync(req.Username);
     if (user is null || !(await um.CheckPasswordAsync(user, req.Password)))
+    {
         return Results.Unauthorized();
+    }
 
     var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
-        claims: new[] { new Claim("sub", user.UserName!), new Claim("uid", user.Id) },
+        claims: new[]
+        {
+            new Claim("sub", user.UserName!),
+            new Claim("uid", user.Id)
+        },
         expires: DateTime.UtcNow.AddHours(1),
         signingCredentials: creds);
 
@@ -130,6 +171,7 @@ app.MapPost("/api/auth/login", async (UserManager<IdentityUser> um, RefreshToken
         token = jwt
     });
 }).AllowAnonymous();
+
 
 // Health endpoints (anonymous)
 app.MapGet("/health", () => Results.Ok("ok")).AllowAnonymous();
