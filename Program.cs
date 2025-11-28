@@ -25,6 +25,7 @@ builder.Services
         o.Password.RequireDigit = false;
         o.Password.RequiredLength = 6;
     })
+    .AddRoles<IdentityRole>()
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddSignInManager();
 
@@ -61,6 +62,8 @@ using (var scope = app.Services.CreateScope())
     await db.Database.MigrateAsync();
 
     var um = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
+    var rm = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+    
     async Task EnsureUser(string user, string pw)
     {
         if (await um.FindByNameAsync(user) is null)
@@ -68,6 +71,22 @@ using (var scope = app.Services.CreateScope())
     }
     await EnsureUser("alice", "password");
     await EnsureUser("bob", "password");
+    
+    // Create driver role if it doesn't exist
+    if (!await rm.RoleExistsAsync("driver"))
+    {
+        await rm.CreateAsync(new IdentityRole("driver"));
+    }
+    
+    // Create driver test user with role and custom uid claim
+    var driverUser = await um.FindByNameAsync("charlie");
+    if (driverUser is null)
+    {
+        driverUser = new IdentityUser { UserName = "charlie" };
+        await um.CreateAsync(driverUser, "password");
+        await um.AddToRoleAsync(driverUser, "driver");
+        await um.AddClaimAsync(driverUser, new Claim("uid", "driver-001"));
+    }
 }
 
 // Pipeline
@@ -78,7 +97,6 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-
 
 // JSON login endpoints (return access + refresh)
 app.MapPost("/login", 
@@ -105,12 +123,30 @@ app.MapPost("/login",
         return Results.Unauthorized();
     }
 
+    var claims = new List<Claim>
+    {
+        new Claim("sub", user.UserName!),
+        new Claim("uid", user.Id)
+    };
+    
+    // Add role claims
+    var roles = await um.GetRolesAsync(user);
+    foreach (var role in roles)
+    {
+        claims.Add(new Claim("role", role));
+    }
+    
+    // Add custom uid claim if exists
+    var userClaims = await um.GetClaimsAsync(user);
+    var customUid = userClaims.FirstOrDefault(c => c.Type == "uid");
+    if (customUid != null)
+    {
+        claims.RemoveAll(c => c.Type == "uid");
+        claims.Add(customUid);
+    }
+
     var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
-        claims: new[]
-        {
-            new Claim("sub", user.UserName!),
-            new Claim("uid", user.Id)
-        },
+        claims: claims,
         expires: DateTime.UtcNow.AddHours(1),
         signingCredentials: creds);
 
@@ -150,12 +186,30 @@ app.MapPost("/api/auth/login",
         return Results.Unauthorized();
     }
 
+    var claims = new List<Claim>
+    {
+        new Claim("sub", user.UserName!),
+        new Claim("uid", user.Id)
+    };
+    
+    // Add role claims
+    var roles = await um.GetRolesAsync(user);
+    foreach (var role in roles)
+    {
+        claims.Add(new Claim("role", role));
+    }
+    
+    // Add custom uid claim if exists
+    var userClaims = await um.GetClaimsAsync(user);
+    var customUid = userClaims.FirstOrDefault(c => c.Type == "uid");
+    if (customUid != null)
+    {
+        claims.RemoveAll(c => c.Type == "uid");
+        claims.Add(customUid);
+    }
+
     var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
-        claims: new[]
-        {
-            new Claim("sub", user.UserName!),
-            new Claim("uid", user.Id)
-        },
+        claims: claims,
         expires: DateTime.UtcNow.AddHours(1),
         signingCredentials: creds);
 
