@@ -79,14 +79,37 @@ using (var scope = app.Services.CreateScope())
     }
     
     // Create driver test user with role and custom uid claim
+    // Note: Using "driver-001" for backward compatibility with existing test data
+    // New drivers should use GUID-based UIDs for scalability
     var driverUser = await um.FindByNameAsync("charlie");
     if (driverUser is null)
     {
         driverUser = new IdentityUser { UserName = "charlie" };
         await um.CreateAsync(driverUser, "password");
         await um.AddToRoleAsync(driverUser, "driver");
+        // Using fixed uid for test user - matches AdminAPI seed data
         await um.AddClaimAsync(driverUser, new Claim("uid", "driver-001"));
     }
+    
+    // Create additional test drivers with GUID-based UIDs for scalability testing
+    async Task EnsureDriverUser(string username, string password, string userUid)
+    {
+        var user = await um.FindByNameAsync(username);
+        if (user is null)
+        {
+            user = new IdentityUser { UserName = username };
+            var result = await um.CreateAsync(user, password);
+            if (result.Succeeded)
+            {
+                await um.AddToRoleAsync(user, "driver");
+                await um.AddClaimAsync(user, new Claim("uid", userUid));
+            }
+        }
+    }
+    
+    // Additional test drivers with GUID-based UIDs
+    await EnsureDriverUser("driver_dave", "password", Guid.NewGuid().ToString("N"));
+    await EnsureDriverUser("driver_eve", "password", Guid.NewGuid().ToString("N"));
 }
 
 // Pipeline
@@ -226,6 +249,54 @@ app.MapPost("/api/auth/login",
     });
 }).AllowAnonymous();
 
+// Dev endpoint to seed additional test driver users
+app.MapPost("/dev/seed-drivers",
+    async (UserManager<IdentityUser> um, RoleManager<IdentityRole> rm) =>
+{
+    // Ensure driver role exists
+    if (!await rm.RoleExistsAsync("driver"))
+    {
+        await rm.CreateAsync(new IdentityRole("driver"));
+    }
+
+    var created = new List<object>();
+
+    // Define test drivers with predetermined GUIDs for consistency with AdminAPI seed data
+    var testDrivers = new[]
+    {
+        new { Username = "charlie", Password = "password", UserUid = "driver-001" },
+        new { Username = "driver_frank", Password = "password", UserUid = Guid.NewGuid().ToString("N") },
+        new { Username = "driver_grace", Password = "password", UserUid = Guid.NewGuid().ToString("N") },
+    };
+
+    foreach (var d in testDrivers)
+    {
+        var existing = await um.FindByNameAsync(d.Username);
+        if (existing is null)
+        {
+            var user = new IdentityUser { UserName = d.Username };
+            var result = await um.CreateAsync(user, d.Password);
+            if (result.Succeeded)
+            {
+                await um.AddToRoleAsync(user, "driver");
+                await um.AddClaimAsync(user, new Claim("uid", d.UserUid));
+                created.Add(new { d.Username, d.UserUid });
+            }
+        }
+        else
+        {
+            // Check if uid claim exists, if not add it
+            var claims = await um.GetClaimsAsync(existing);
+            if (!claims.Any(c => c.Type == "uid"))
+            {
+                await um.AddClaimAsync(existing, new Claim("uid", d.UserUid));
+                created.Add(new { d.Username, d.UserUid, updated = true });
+            }
+        }
+    }
+
+    return Results.Ok(new { message = "Driver users seeded.", created });
+}).AllowAnonymous();
 
 // Health endpoints (anonymous)
 app.MapGet("/health", () => Results.Ok("ok")).AllowAnonymous();
