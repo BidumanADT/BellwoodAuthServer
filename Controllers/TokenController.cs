@@ -41,7 +41,7 @@ public class TokenController : ControllerBase
             if (user is null || !(await _users.CheckPasswordAsync(user, req.password ?? "")))
                 return Unauthorized(new { error = "invalid_grant" });
 
-            var (access, refresh) = IssueTokens(user, req.scope, creds);
+            var (access, refresh) = await IssueTokensAsync(user, req.scope, creds);
             return Ok(new
             {
                 access_token = access,
@@ -63,7 +63,7 @@ public class TokenController : ControllerBase
             var user = await _users.FindByNameAsync(username);
             if (user is null) return Unauthorized(new { error = "invalid_grant" });
 
-            var (access, refresh) = IssueTokens(user, req.scope, creds); // rotate RT
+            var (access, refresh) = await IssueTokensAsync(user, req.scope, creds); // rotate RT
             return Ok(new
             {
                 access_token = access,
@@ -77,13 +77,30 @@ public class TokenController : ControllerBase
         return BadRequest(new { error = "unsupported_grant_type" });
     }
 
-    private (string access, string refresh) IssueTokens(IdentityUser user, string? scope, SigningCredentials creds)
+    private async Task<(string access, string refresh)> IssueTokensAsync(IdentityUser user, string? scope, SigningCredentials creds)
     {
         var claims = new List<Claim> {
             new("sub", user.UserName!),
             new("uid", user.Id),
             new("scope", string.IsNullOrWhiteSpace(scope) ? "api.rides offline_access" : scope!)
         };
+        
+        // Add role claims
+        var roles = await _users.GetRolesAsync(user);
+        foreach (var role in roles)
+        {
+            claims.Add(new Claim("role", role));
+        }
+        
+        // Add custom uid claim if exists (overrides default user.Id)
+        var userClaims = await _users.GetClaimsAsync(user);
+        var customUid = userClaims.FirstOrDefault(c => c.Type == "uid");
+        if (customUid != null)
+        {
+            claims.RemoveAll(c => c.Type == "uid");
+            claims.Add(customUid);
+        }
+        
         var jwt = new JwtSecurityToken(claims: claims, expires: DateTime.UtcNow.AddHours(1), signingCredentials: creds);
         var access = new JwtSecurityTokenHandler().WriteToken(jwt);
 

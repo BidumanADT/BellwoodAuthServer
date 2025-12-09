@@ -15,8 +15,11 @@ public class RefreshTokenStore
 
     public bool TryRedeem(string refreshToken, out string username)
     {
-        if (_rtToUser.TryRemove(refreshToken, out username))
+        if (_rtToUser.TryRemove(refreshToken, out var user))
+        {
+            username = user;
             return true;
+        }
         username = "";
         return false;
     }

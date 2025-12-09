@@ -79,14 +79,73 @@ using (var scope = app.Services.CreateScope())
     }
     
     // Create driver test user with role and custom uid claim
+    // Note: Using "driver-001" for backward compatibility with existing test data
+    // New drivers should use GUID-based UIDs for scalability
     var driverUser = await um.FindByNameAsync("charlie");
     if (driverUser is null)
     {
         driverUser = new IdentityUser { UserName = "charlie" };
         await um.CreateAsync(driverUser, "password");
+    }
+    
+    // Ensure Charlie has the driver role (even if user already existed)
+    var charlieRoles = await um.GetRolesAsync(driverUser);
+    if (!charlieRoles.Contains("driver"))
+    {
         await um.AddToRoleAsync(driverUser, "driver");
+    }
+    
+    // Ensure Charlie has the uid claim (even if user already existed)
+    var charlieClaims = await um.GetClaimsAsync(driverUser);
+    var charlieUidClaim = charlieClaims.FirstOrDefault(c => c.Type == "uid");
+    if (charlieUidClaim == null)
+    {
+        // Using fixed uid for test user - matches AdminAPI seed data
         await um.AddClaimAsync(driverUser, new Claim("uid", "driver-001"));
     }
+    else if (charlieUidClaim.Value != "driver-001")
+    {
+        // Update if wrong value
+        await um.RemoveClaimAsync(driverUser, charlieUidClaim);
+        await um.AddClaimAsync(driverUser, new Claim("uid", "driver-001"));
+    }
+    
+    // Create additional test drivers with GUID-based UIDs for scalability testing
+    async Task EnsureDriverUser(string username, string password, string userUid)
+    {
+        var user = await um.FindByNameAsync(username);
+        if (user is null)
+        {
+            user = new IdentityUser { UserName = username };
+            var result = await um.CreateAsync(user, password);
+            if (result.Succeeded)
+            {
+                await um.AddToRoleAsync(user, "driver");
+                await um.AddClaimAsync(user, new Claim("uid", userUid));
+            }
+        }
+        else
+        {
+            // Ensure existing user has driver role
+            var roles = await um.GetRolesAsync(user);
+            if (!roles.Contains("driver"))
+            {
+                await um.AddToRoleAsync(user, "driver");
+            }
+            
+            // Ensure existing user has uid claim
+            var claims = await um.GetClaimsAsync(user);
+            var uidClaim = claims.FirstOrDefault(c => c.Type == "uid");
+            if (uidClaim == null)
+            {
+                await um.AddClaimAsync(user, new Claim("uid", userUid));
+            }
+        }
+    }
+    
+    // Additional test drivers with GUID-based UIDs
+    await EnsureDriverUser("driver_dave", "password", Guid.NewGuid().ToString("N"));
+    await EnsureDriverUser("driver_eve", "password", Guid.NewGuid().ToString("N"));
 }
 
 // Pipeline
@@ -226,6 +285,90 @@ app.MapPost("/api/auth/login",
     });
 }).AllowAnonymous();
 
+// Dev endpoint to seed additional test driver users
+app.MapPost("/dev/seed-drivers",
+    async (UserManager<IdentityUser> um, RoleManager<IdentityRole> rm) =>
+{
+    // Ensure driver role exists
+    if (!await rm.RoleExistsAsync("driver"))
+    {
+        await rm.CreateAsync(new IdentityRole("driver"));
+    }
+
+    var created = new List<object>();
+
+    // Define test drivers with predetermined GUIDs for consistency with AdminAPI seed data
+    var testDrivers = new[]
+    {
+        new { Username = "charlie", Password = "password", UserUid = "driver-001" },
+        new { Username = "driver_frank", Password = "password", UserUid = Guid.NewGuid().ToString("N") },
+        new { Username = "driver_grace", Password = "password", UserUid = Guid.NewGuid().ToString("N") },
+    };
+
+    foreach (var d in testDrivers)
+    {
+        var existing = await um.FindByNameAsync(d.Username);
+        if (existing is null)
+        {
+            var user = new IdentityUser { UserName = d.Username };
+            var result = await um.CreateAsync(user, d.Password);
+            if (result.Succeeded)
+            {
+                await um.AddToRoleAsync(user, "driver");
+                await um.AddClaimAsync(user, new Claim("uid", d.UserUid));
+                created.Add(new { d.Username, d.UserUid });
+            }
+        }
+        else
+        {
+            // Check if uid claim exists, if not add it
+            var claims = await um.GetClaimsAsync(existing);
+            if (!claims.Any(c => c.Type == "uid"))
+            {
+                await um.AddClaimAsync(existing, new Claim("uid", d.UserUid));
+                created.Add(new { d.Username, d.UserUid, updated = true });
+            }
+        }
+    }
+
+    return Results.Ok(new { message = "Driver users seeded.", created });
+}).AllowAnonymous();
+
+// Diagnostic endpoint to check user roles and claims
+app.MapGet("/dev/user-info/{username}",
+    async (string username, UserManager<IdentityUser> um) =>
+{
+    var user = await um.FindByNameAsync(username);
+    if (user is null)
+    {
+        return Results.NotFound(new { error = $"User '{username}' not found." });
+    }
+
+    var roles = await um.GetRolesAsync(user);
+    var claims = await um.GetClaimsAsync(user);
+
+    // Check for driver-specific configuration
+    var hasDriverRole = roles.Contains("driver");
+    var uidClaim = claims.FirstOrDefault(c => c.Type == "uid");
+    
+    return Results.Ok(new
+    {
+        userId = user.Id,
+        username = user.UserName,
+        email = user.Email,
+        roles = roles,
+        claims = claims.Select(c => new { c.Type, c.Value }).ToList(),
+        // Diagnostic flags
+        diagnostics = new
+        {
+            hasDriverRole,
+            hasUidClaim = uidClaim != null,
+            uidValue = uidClaim?.Value,
+            canAccessDriverEndpoints = hasDriverRole, // 403 will occur if false
+            warning = !hasDriverRole ? "?? User missing 'driver' role - will get 403 on driver endpoints" : null
+        }
+    });
+}).AllowAnonymous();
 
 // Health endpoints (anonymous)
 app.MapGet("/health", () => Results.Ok("ok")).AllowAnonymous();
