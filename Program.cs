@@ -86,8 +86,27 @@ using (var scope = app.Services.CreateScope())
     {
         driverUser = new IdentityUser { UserName = "charlie" };
         await um.CreateAsync(driverUser, "password");
+    }
+    
+    // Ensure Charlie has the driver role (even if user already existed)
+    var charlieRoles = await um.GetRolesAsync(driverUser);
+    if (!charlieRoles.Contains("driver"))
+    {
         await um.AddToRoleAsync(driverUser, "driver");
+    }
+    
+    // Ensure Charlie has the uid claim (even if user already existed)
+    var charlieClaims = await um.GetClaimsAsync(driverUser);
+    var charlieUidClaim = charlieClaims.FirstOrDefault(c => c.Type == "uid");
+    if (charlieUidClaim == null)
+    {
         // Using fixed uid for test user - matches AdminAPI seed data
+        await um.AddClaimAsync(driverUser, new Claim("uid", "driver-001"));
+    }
+    else if (charlieUidClaim.Value != "driver-001")
+    {
+        // Update if wrong value
+        await um.RemoveClaimAsync(driverUser, charlieUidClaim);
         await um.AddClaimAsync(driverUser, new Claim("uid", "driver-001"));
     }
     
@@ -102,6 +121,23 @@ using (var scope = app.Services.CreateScope())
             if (result.Succeeded)
             {
                 await um.AddToRoleAsync(user, "driver");
+                await um.AddClaimAsync(user, new Claim("uid", userUid));
+            }
+        }
+        else
+        {
+            // Ensure existing user has driver role
+            var roles = await um.GetRolesAsync(user);
+            if (!roles.Contains("driver"))
+            {
+                await um.AddToRoleAsync(user, "driver");
+            }
+            
+            // Ensure existing user has uid claim
+            var claims = await um.GetClaimsAsync(user);
+            var uidClaim = claims.FirstOrDefault(c => c.Type == "uid");
+            if (uidClaim == null)
+            {
                 await um.AddClaimAsync(user, new Claim("uid", userUid));
             }
         }
@@ -296,6 +332,42 @@ app.MapPost("/dev/seed-drivers",
     }
 
     return Results.Ok(new { message = "Driver users seeded.", created });
+}).AllowAnonymous();
+
+// Diagnostic endpoint to check user roles and claims
+app.MapGet("/dev/user-info/{username}",
+    async (string username, UserManager<IdentityUser> um) =>
+{
+    var user = await um.FindByNameAsync(username);
+    if (user is null)
+    {
+        return Results.NotFound(new { error = $"User '{username}' not found." });
+    }
+
+    var roles = await um.GetRolesAsync(user);
+    var claims = await um.GetClaimsAsync(user);
+
+    // Check for driver-specific configuration
+    var hasDriverRole = roles.Contains("driver");
+    var uidClaim = claims.FirstOrDefault(c => c.Type == "uid");
+    
+    return Results.Ok(new
+    {
+        userId = user.Id,
+        username = user.UserName,
+        email = user.Email,
+        roles = roles,
+        claims = claims.Select(c => new { c.Type, c.Value }).ToList(),
+        // Diagnostic flags
+        diagnostics = new
+        {
+            hasDriverRole,
+            hasUidClaim = uidClaim != null,
+            uidValue = uidClaim?.Value,
+            canAccessDriverEndpoints = hasDriverRole, // 403 will occur if false
+            warning = !hasDriverRole ? "?? User missing 'driver' role - will get 403 on driver endpoints" : null
+        }
+    });
 }).AllowAnonymous();
 
 // Health endpoints (anonymous)
