@@ -72,6 +72,42 @@ using (var scope = app.Services.CreateScope())
     await EnsureUser("alice", "password");
     await EnsureUser("bob", "password");
     
+    // Create passenger test user with email claim
+    var passengerUser = await um.FindByNameAsync("chris");
+    if (passengerUser is null)
+    {
+        passengerUser = new IdentityUser 
+        { 
+            UserName = "chris",
+            Email = "chris.bailey@example.com",
+            EmailConfirmed = true
+        };
+        await um.CreateAsync(passengerUser, "password");
+    }
+    else
+    {
+        // Update email if user already exists
+        if (passengerUser.Email != "chris.bailey@example.com")
+        {
+            passengerUser.Email = "chris.bailey@example.com";
+            passengerUser.EmailConfirmed = true;
+            await um.UpdateAsync(passengerUser);
+        }
+    }
+    
+    // Ensure Chris has the email claim
+    var chrisClaims = await um.GetClaimsAsync(passengerUser);
+    var chrisEmailClaim = chrisClaims.FirstOrDefault(c => c.Type == "email");
+    if (chrisEmailClaim == null)
+    {
+        await um.AddClaimAsync(passengerUser, new Claim("email", "chris.bailey@example.com"));
+    }
+    else if (chrisEmailClaim.Value != "chris.bailey@example.com")
+    {
+        await um.RemoveClaimAsync(passengerUser, chrisEmailClaim);
+        await um.AddClaimAsync(passengerUser, new Claim("email", "chris.bailey@example.com"));
+    }
+    
     // Create driver role if it doesn't exist
     if (!await rm.RoleExistsAsync("driver"))
     {
@@ -195,8 +231,22 @@ app.MapPost("/login",
         claims.Add(new Claim("role", role));
     }
     
-    // Add custom uid claim if exists
+    // Add user claims (email, custom uid, etc.)
     var userClaims = await um.GetClaimsAsync(user);
+    
+    // Add email claim if exists
+    var emailClaim = userClaims.FirstOrDefault(c => c.Type == "email");
+    if (emailClaim != null)
+    {
+        claims.Add(emailClaim);
+    }
+    else if (!string.IsNullOrEmpty(user.Email))
+    {
+        // Fallback to user.Email if no email claim
+        claims.Add(new Claim("email", user.Email));
+    }
+    
+    // Add custom uid claim if exists (overrides default uid)
     var customUid = userClaims.FirstOrDefault(c => c.Type == "uid");
     if (customUid != null)
     {
@@ -258,8 +308,22 @@ app.MapPost("/api/auth/login",
         claims.Add(new Claim("role", role));
     }
     
-    // Add custom uid claim if exists
+    // Add user claims (email, custom uid, etc.)
     var userClaims = await um.GetClaimsAsync(user);
+    
+    // Add email claim if exists
+    var emailClaim = userClaims.FirstOrDefault(c => c.Type == "email");
+    if (emailClaim != null)
+    {
+        claims.Add(emailClaim);
+    }
+    else if (!string.IsNullOrEmpty(user.Email))
+    {
+        // Fallback to user.Email if no email claim
+        claims.Add(new Claim("email", user.Email));
+    }
+    
+    // Add custom uid claim if exists (overrides default uid)
     var customUid = userClaims.FirstOrDefault(c => c.Type == "uid");
     if (customUid != null)
     {
