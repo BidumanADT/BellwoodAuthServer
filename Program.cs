@@ -64,6 +64,20 @@ using (var scope = app.Services.CreateScope())
     var um = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
     var rm = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
     
+    // Create roles if they don't exist
+    if (!await rm.RoleExistsAsync("admin"))
+    {
+        await rm.CreateAsync(new IdentityRole("admin"));
+    }
+    if (!await rm.RoleExistsAsync("booker"))
+    {
+        await rm.CreateAsync(new IdentityRole("booker"));
+    }
+    if (!await rm.RoleExistsAsync("driver"))
+    {
+        await rm.CreateAsync(new IdentityRole("driver"));
+    }
+    
     async Task EnsureUser(string user, string pw)
     {
         if (await um.FindByNameAsync(user) is null)
@@ -71,6 +85,27 @@ using (var scope = app.Services.CreateScope())
     }
     await EnsureUser("alice", "password");
     await EnsureUser("bob", "password");
+    
+    // Add admin role to alice and bob
+    var alice = await um.FindByNameAsync("alice");
+    if (alice != null)
+    {
+        var aliceRoles = await um.GetRolesAsync(alice);
+        if (!aliceRoles.Contains("admin"))
+        {
+            await um.AddToRoleAsync(alice, "admin");
+        }
+    }
+    
+    var bob = await um.FindByNameAsync("bob");
+    if (bob != null)
+    {
+        var bobRoles = await um.GetRolesAsync(bob);
+        if (!bobRoles.Contains("admin"))
+        {
+            await um.AddToRoleAsync(bob, "admin");
+        }
+    }
     
     // Create passenger test user with email claim
     var passengerUser = await um.FindByNameAsync("chris");
@@ -95,6 +130,13 @@ using (var scope = app.Services.CreateScope())
         }
     }
     
+    // Ensure Chris has the booker role
+    var chrisRoles = await um.GetRolesAsync(passengerUser);
+    if (!chrisRoles.Contains("booker"))
+    {
+        await um.AddToRoleAsync(passengerUser, "booker");
+    }
+    
     // Ensure Chris has the email claim
     var chrisClaims = await um.GetClaimsAsync(passengerUser);
     var chrisEmailClaim = chrisClaims.FirstOrDefault(c => c.Type == "email");
@@ -106,12 +148,6 @@ using (var scope = app.Services.CreateScope())
     {
         await um.RemoveClaimAsync(passengerUser, chrisEmailClaim);
         await um.AddClaimAsync(passengerUser, new Claim("email", "chris.bailey@example.com"));
-    }
-    
-    // Create driver role if it doesn't exist
-    if (!await rm.RoleExistsAsync("driver"))
-    {
-        await rm.CreateAsync(new IdentityRole("driver"));
     }
     
     // Create driver test user with role and custom uid claim
