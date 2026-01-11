@@ -218,6 +218,9 @@ using (var scope = app.Services.CreateScope())
     // Additional test drivers with GUID-based UIDs
     await EnsureDriverUser("driver_dave", "password", Guid.NewGuid().ToString("N"));
     await EnsureDriverUser("driver_eve", "password", Guid.NewGuid().ToString("N"));
+    
+    // PHASE 2 ACTIVATION: Uncomment the following line to seed dispatcher role and test user
+    // await Phase2RolePreparation.SeedDispatcherRole(rm, um);
 }
 
 // Pipeline
@@ -257,7 +260,8 @@ app.MapPost("/login",
     var claims = new List<Claim>
     {
         new Claim("sub", user.UserName!),
-        new Claim("uid", user.Id)
+        new Claim("uid", user.Id),
+        new Claim("userId", user.Id)  // PHASE 1: Always Identity GUID for audit tracking
     };
     
     // Add role claims
@@ -282,12 +286,13 @@ app.MapPost("/login",
         claims.Add(new Claim("email", user.Email));
     }
     
-    // Add custom uid claim if exists (overrides default uid)
+    // Add custom uid claim if exists (overrides default uid, userId remains Identity GUID)
     var customUid = userClaims.FirstOrDefault(c => c.Type == "uid");
     if (customUid != null)
     {
         claims.RemoveAll(c => c.Type == "uid");
         claims.Add(customUid);
+        // Note: userId claim is NOT overridden - it always contains Identity GUID
     }
 
     var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
@@ -334,7 +339,8 @@ app.MapPost("/api/auth/login",
     var claims = new List<Claim>
     {
         new Claim("sub", user.UserName!),
-        new Claim("uid", user.Id)
+        new Claim("uid", user.Id),
+        new Claim("userId", user.Id)  // PHASE 1: Always Identity GUID for audit tracking
     };
     
     // Add role claims
@@ -359,12 +365,13 @@ app.MapPost("/api/auth/login",
         claims.Add(new Claim("email", user.Email));
     }
     
-    // Add custom uid claim if exists (overrides default uid)
+    // Add custom uid claim if exists (overrides default uid, userId remains Identity GUID)
     var customUid = userClaims.FirstOrDefault(c => c.Type == "uid");
     if (customUid != null)
     {
         claims.RemoveAll(c => c.Type == "uid");
         claims.Add(customUid);
+        // Note: userId claim is NOT overridden - it always contains Identity GUID
     }
 
     var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
@@ -450,6 +457,27 @@ app.MapGet("/dev/user-info/{username}",
     // Check for driver-specific configuration
     var hasDriverRole = roles.Contains("driver");
     var uidClaim = claims.FirstOrDefault(c => c.Type == "uid");
+    var emailClaim = claims.FirstOrDefault(c => c.Type == "email");
+    
+    // Simulate what the JWT would contain (Phase 1 structure)
+    var jwtClaimsPreview = new List<object>
+    {
+        new { Type = "sub", Value = user.UserName },
+        new { Type = "uid", Value = uidClaim?.Value ?? user.Id },
+        new { Type = "userId", Value = user.Id }  // PHASE 1: Always Identity GUID
+    };
+    
+    // Add roles to preview
+    foreach (var role in roles)
+    {
+        jwtClaimsPreview.Add(new { Type = "role", Value = role });
+    }
+    
+    // Add email if available
+    if (emailClaim != null || !string.IsNullOrEmpty(user.Email))
+    {
+        jwtClaimsPreview.Add(new { Type = "email", Value = emailClaim?.Value ?? user.Email });
+    }
     
     return Results.Ok(new
     {
@@ -457,15 +485,26 @@ app.MapGet("/dev/user-info/{username}",
         username = user.UserName,
         email = user.Email,
         roles = roles,
-        claims = claims.Select(c => new { c.Type, c.Value }).ToList(),
+        userClaims = claims.Select(c => new { c.Type, c.Value }).ToList(),
+        // PHASE 1: Preview of JWT claims structure
+        jwtClaimsPreview,
         // Diagnostic flags
         diagnostics = new
         {
             hasDriverRole,
-            hasUidClaim = uidClaim != null,
-            uidValue = uidClaim?.Value,
-            canAccessDriverEndpoints = hasDriverRole, // 403 will occur if false
-            warning = !hasDriverRole ? "?? User missing 'driver' role - will get 403 on driver endpoints" : null
+            hasCustomUid = uidClaim != null,
+            customUidValue = uidClaim?.Value,
+            identityGuid = user.Id,
+            hasEmail = emailClaim != null || !string.IsNullOrEmpty(user.Email),
+            phase1Ready = true,
+            notes = new
+            {
+                uidClaim = uidClaim != null 
+                    ? "Custom UID will override default in JWT (driver pattern)" 
+                    : "JWT will use Identity GUID for uid claim",
+                userIdClaim = "Phase 1: userId claim always contains Identity GUID for audit tracking",
+                auditRecommendation = "AdminAPI should use 'userId' claim for CreatedByUserId field"
+            }
         }
     });
 }).AllowAnonymous();
