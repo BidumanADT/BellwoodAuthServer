@@ -42,6 +42,46 @@
 
 ---
 
+### Phase 2 Implementation
+
+**File:** `AuthServer-Phase2.md`  
+**Status:** ? Complete
+
+**What's Inside:**
+- Dispatcher role activation
+- Authorization policies (AdminOnly, StaffOnly)
+- Role assignment endpoint
+- Protected admin endpoints
+- Testing scenarios
+
+**Use When:**
+- Implementing Phase 2 RBAC
+- Understanding dispatcher role
+- Assigning user roles
+- Protecting endpoints with policies
+
+---
+
+### Phase 2 Test Report
+
+**File:** `TEST-REPORT-Phase2.md`  
+**Status:** ? Complete
+
+**What's Inside:**
+- Full test execution results
+- 12 comprehensive test scenarios
+- Security verification
+- Deployment recommendation
+- Test execution log
+
+**Use When:**
+- Verifying Phase 2 implementation
+- Reviewing test coverage
+- Preparing for deployment
+- Audit and compliance records
+
+---
+
 ### AdminAPI
 **File:** `AdminAPI-Phase1.md`  
 **Status:** ? Complete
@@ -64,7 +104,7 @@
 **Status:** ?? Reference Only
 
 **What's Inside:**
-- Backend changes summary
+- Backend changes summary (Phase 1 & 2)
 - JWT structure reference
 - API response format changes
 - Integration points
@@ -75,6 +115,27 @@
 - Referencing JWT/API formats
 
 **Note:** Implementation guidance will be provided separately.
+
+---
+
+### Phase 2 Integration Reference
+
+**File:** `AdminAPI-Phase2-Reference.md`  
+**Status:** ?? Reference Only
+
+**What's Inside:**
+- AuthServer Phase 2 changes summary
+- New dispatcher role details
+- Authorization policy usage
+- Role assignment endpoint
+- Impact on other components
+
+**Use When:**
+- Understanding AuthServer Phase 2 changes
+- Planning AdminAPI Phase 2 implementation
+- Planning Portal Phase 2 implementation
+
+**Note:** Implementation guidance for each component will be provided separately.
 
 ---
 

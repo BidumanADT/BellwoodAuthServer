@@ -12,9 +12,13 @@ Docs/
 ??? ?? README.md ? START HERE
 ?
 ??? ?? Phase 1 Implementation
-?   ??? AuthServer-Phase1.md ......... AuthServer complete guide
+?   ??? AuthServer-Phase1.md ......... AuthServer Phase 1 guide
 ?   ??? AdminAPI-Phase1.md ........... AdminAPI implementation
 ?   ??? AdminPortal-Reference.md ..... Portal backend changes reference
+?
+??? ?? Phase 2 Implementation
+?   ??? AuthServer-Phase2.md ......... AuthServer Phase 2 guide
+?   ??? AdminAPI-Phase2-Reference.md . Phase 2 integration reference
 ?
 ??? ?? Platform-Wide
 ?   ??? Platform-Phase1.md ........... All components overview
@@ -22,8 +26,9 @@ Docs/
 ?   ??? Planning-DataAccess.md ....... Overall strategy & roadmap
 ?
 ??? ?? Reference
-?   ??? Quick-Reference.md ........... Fast lookup guide
-?   ??? CLEANUP-SUMMARY.md ........... This reorganization summary
+?   ??? Quick-Reference.md ........... Fast lookup guide (Phase 1 & 2)
+?   ??? CLEANUP-SUMMARY.md ........... Reorganization summary
+?   ??? NAVIGATION-GUIDE.md .......... This file
 ?
 ??? ?? Archive/
     ??? README.md .................... Archive explanation
@@ -65,10 +70,12 @@ Docs/
 ? `Platform-Phase1.md`
 
 **...AuthServer changes**
-? `AuthServer-Phase1.md`
+? `AuthServer-Phase1.md` (Phase 1)
+? `AuthServer-Phase2.md` (Phase 2)
 
 **...AdminAPI changes**
-? `AdminAPI-Phase1.md`
+? `AdminAPI-Phase1.md` (Phase 1)
+? `AdminAPI-Phase2-Reference.md` (Phase 2 integration)
 
 **...Portal integration**
 ? `AdminPortal-Reference.md`
@@ -185,15 +192,20 @@ Special:
 ```
 Planning-DataAccess.md ? Overall Strategy
         ?
-        ??? Platform-Phase1.md ? Phase Overview
+        ?? Platform-Phase1.md ? Phase 1 Overview
         ?           ?
-        ?           ??? AuthServer-Phase1.md
-        ?           ??? AdminAPI-Phase1.md
-        ?           ??? AdminPortal-Reference.md
+        ?           ?? AuthServer-Phase1.md
+        ?           ?? AdminAPI-Phase1.md
+        ?           ?? AdminPortal-Reference.md
         ?
-        ??? Platform-DataFlow.md ? Integration Details
+        ?? Platform-Phase2.md ? Phase 2 Overview (TBD)
+        ?           ?
+        ?           ?? AuthServer-Phase2.md
+        ?           ?? AdminAPI-Phase2-Reference.md
+        ?
+        ?? Platform-DataFlow.md ? Integration Details
 
-Quick-Reference.md ? Points to all above
+Quick-Reference.md ? Points to all above (Phase 1 & 2)
 ```
 
 ---
@@ -270,10 +282,11 @@ Docs/
 
 | Metric | Value |
 |--------|-------|
-| Active Documents | 8 |
+| Active Documents | 11 |
 | Archived Documents | 14 |
-| Total Documents | 23 |
+| Total Documents | 26 |
 | Components Covered | 3 |
+| Phases Documented | 2 |
 | Navigation Depth | ?3 clicks |
 | Redundancy | 0% |
 

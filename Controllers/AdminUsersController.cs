@@ -7,10 +7,11 @@ namespace BellwoodAuthServer.Controllers;
 
 /// <summary>
 /// Admin endpoints for managing driver and affiliate users.
-/// In production, these endpoints should be protected with admin authorization.
+/// PHASE 2: Protected with AdminOnly authorization policy.
 /// </summary>
 [ApiController]
 [Route("api/admin/users")]
+[Authorize(Policy = "AdminOnly")] // PHASE 2: Require admin role for all endpoints
 public class AdminUsersController : ControllerBase
 {
     private readonly UserManager<IdentityUser> _userManager;
@@ -27,7 +28,6 @@ public class AdminUsersController : ControllerBase
     /// The uid should match the UserUid set on the Driver record in AdminAPI.
     /// </summary>
     [HttpPost("drivers")]
-    [AllowAnonymous] // TODO: In production, restrict to admin role
     public async Task<IActionResult> CreateDriverUser([FromBody] CreateDriverUserRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Username))
@@ -89,7 +89,6 @@ public class AdminUsersController : ControllerBase
     /// Updates the uid claim for an existing user.
     /// </summary>
     [HttpPut("{username}/uid")]
-    [AllowAnonymous] // TODO: In production, restrict to admin role
     public async Task<IActionResult> UpdateUserUid(string username, [FromBody] UpdateUserUidRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.UserUid))
@@ -135,7 +134,6 @@ public class AdminUsersController : ControllerBase
     /// Gets all users with the driver role.
     /// </summary>
     [HttpGet("drivers")]
-    [AllowAnonymous] // TODO: In production, restrict to admin role
     public async Task<IActionResult> GetDriverUsers()
     {
         var driversInRole = await _userManager.GetUsersInRoleAsync("driver");
@@ -161,7 +159,6 @@ public class AdminUsersController : ControllerBase
     /// Gets a user by their uid claim value.
     /// </summary>
     [HttpGet("by-uid/{userUid}")]
-    [AllowAnonymous] // TODO: In production, restrict to admin role
     public async Task<IActionResult> GetUserByUid(string userUid)
     {
         var allUsers = _userManager.Users.ToList();
@@ -189,7 +186,6 @@ public class AdminUsersController : ControllerBase
     /// Deletes a driver user by username.
     /// </summary>
     [HttpDelete("drivers/{username}")]
-    [AllowAnonymous] // TODO: In production, restrict to admin role
     public async Task<IActionResult> DeleteDriverUser(string username)
     {
         var user = await _userManager.FindByNameAsync(username);

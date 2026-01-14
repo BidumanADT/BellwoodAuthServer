@@ -47,7 +47,30 @@ builder.Services
       };
   });
 
-builder.Services.AddAuthorization();
+// PHASE 2: Authorization policies for role-based access control
+builder.Services.AddAuthorization(options =>
+{
+    // AdminOnly: Requires admin role
+    // Use for: User management, role assignment, sensitive operations
+    options.AddPolicy("AdminOnly", policy =>
+        policy.RequireRole("admin"));
+    
+    // StaffOnly: Requires admin OR dispatcher role
+    // Use for: Operational endpoints accessible to both admins and dispatchers
+    options.AddPolicy("StaffOnly", policy =>
+        policy.RequireRole("admin", "dispatcher"));
+    
+    // DriverOnly: Requires driver role (already used in AdminAPI)
+    // Included here for completeness
+    options.AddPolicy("DriverOnly", policy =>
+        policy.RequireRole("driver"));
+    
+    // BookerOnly: Requires booker role
+    // Use for: Passenger-specific endpoints
+    options.AddPolicy("BookerOnly", policy =>
+        policy.RequireRole("booker"));
+});
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -219,8 +242,8 @@ using (var scope = app.Services.CreateScope())
     await EnsureDriverUser("driver_dave", "password", Guid.NewGuid().ToString("N"));
     await EnsureDriverUser("driver_eve", "password", Guid.NewGuid().ToString("N"));
     
-    // PHASE 2 ACTIVATION: Uncomment the following line to seed dispatcher role and test user
-    // await Phase2RolePreparation.SeedDispatcherRole(rm, um);
+    // PHASE 2: Seed dispatcher role and test user
+    await Phase2RolePreparation.SeedDispatcherRole(rm, um);
 }
 
 // Pipeline
@@ -509,11 +532,92 @@ app.MapGet("/dev/user-info/{username}",
     });
 }).AllowAnonymous();
 
+// PHASE 2: Role assignment endpoint (admin-only)
+app.MapPut("/api/admin/users/{username}/role",
+    async (
+        string username,
+        RoleAssignmentRequest? request,
+        UserManager<IdentityUser> um,
+        RoleManager<IdentityRole> rm) =>
+{
+    if (request is null || string.IsNullOrWhiteSpace(request.Role))
+    {
+        return Results.BadRequest(new { error = "Role is required in request body." });
+    }
+
+    // Validate role exists
+    var validRoles = new[] { "admin", "dispatcher", "booker", "driver" };
+    var requestedRole = request.Role.ToLowerInvariant();
+    
+    if (!validRoles.Contains(requestedRole))
+    {
+        return Results.BadRequest(new 
+        { 
+            error = $"Invalid role '{request.Role}'. Valid roles are: {string.Join(", ", validRoles)}" 
+        });
+    }
+
+    // Find user
+    var user = await um.FindByNameAsync(username);
+    if (user is null)
+    {
+        return Results.NotFound(new { error = $"User '{username}' not found." });
+    }
+
+    // Get current roles
+    var currentRoles = await um.GetRolesAsync(user);
+    
+    // Check if user already has this role
+    if (currentRoles.Contains(requestedRole))
+    {
+        return Results.Ok(new 
+        { 
+            message = $"User '{username}' already has role '{requestedRole}'.",
+            username = user.UserName,
+            role = requestedRole,
+            previousRoles = currentRoles
+        });
+    }
+
+    // Remove all existing roles (mutually exclusive strategy)
+    if (currentRoles.Any())
+    {
+        var removeResult = await um.RemoveFromRolesAsync(user, currentRoles);
+        if (!removeResult.Succeeded)
+        {
+            return Results.Problem(
+                detail: string.Join(", ", removeResult.Errors.Select(e => e.Description)),
+                title: "Failed to remove existing roles");
+        }
+    }
+
+    // Add new role
+    var addResult = await um.AddToRoleAsync(user, requestedRole);
+    if (!addResult.Succeeded)
+    {
+        return Results.Problem(
+            detail: string.Join(", ", addResult.Errors.Select(e => e.Description)),
+            title: "Failed to assign new role");
+    }
+
+    return Results.Ok(new
+    {
+        message = $"Successfully assigned role '{requestedRole}' to user '{username}'.",
+        username = user.UserName,
+        previousRoles = currentRoles,
+        newRole = requestedRole
+    });
+})
+.RequireAuthorization("AdminOnly");
+
 // Health endpoints (anonymous)
 app.MapGet("/health", () => Results.Ok("ok")).AllowAnonymous();
 app.MapGet("/healthz", () => Results.Ok("ok")).AllowAnonymous();
 
 app.Run();
 
-// DTO
+// DTOs
 public record LoginRequest(string Username, string Password);
+
+// PHASE 2: Role assignment request
+public record RoleAssignmentRequest(string Role);
