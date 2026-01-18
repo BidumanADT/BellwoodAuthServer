@@ -118,6 +118,44 @@
 
 ---
 
+### GET /api/admin/users Endpoint
+
+**File:** `Endpoint-GET-AdminUsers.md`  
+**Status:** ? Complete
+
+**What's Inside:**
+- Complete API specification
+- Request/response examples
+- Usage examples (all languages)
+- Authorization details
+- Known limitations
+- Portal integration guide
+
+**Use When:**
+- Implementing user list UI
+- Testing the endpoint
+- Understanding query parameters
+
+---
+
+### Portal Team Communication
+
+**File:** `Portal-Team-Endpoint-Ready.md`  
+**Status:** ?? Ready to Share
+
+**What's Inside:**
+- Quick summary for Portal team
+- Implementation notification
+- Code examples
+- Test data
+- Integration checklist
+
+**Use When:**
+- Notifying Portal team of completion
+- Quick reference for developers
+
+---
+
 ### Phase 2 Integration Reference
 
 **File:** `AdminAPI-Phase2-Reference.md`  

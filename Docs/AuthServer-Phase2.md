@@ -180,11 +180,29 @@ Content-Type: application/json
 - `GET /api/admin/users/drivers` - List driver users
 - `GET /api/admin/users/by-uid/{userUid}` - Get user by UID
 - `DELETE /api/admin/users/drivers/{username}` - Delete driver user
+- `GET /api/admin/users` - **List all users** ? **NEW (Portal Integration)**
 
 **Result:**
 - All endpoints now require admin role
 - Dispatchers cannot create/modify users
 - Clear separation of admin vs operational duties
+
+---
+
+### 5. User Data Enhancements
+
+**File Modified:** `Program.cs`
+
+**Change:** Added email addresses to admin test users.
+
+**Updated Users:**
+- alice: Added `alice.admin@bellwood.example`
+- bob: Added `bob.admin@bellwood.example`
+
+**Result:**
+- Better user management display in Admin Portal
+- Consistent email configuration across all test users
+- Email claims automatically generated
 
 ---
 

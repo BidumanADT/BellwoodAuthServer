@@ -113,20 +113,50 @@ using (var scope = app.Services.CreateScope())
     var alice = await um.FindByNameAsync("alice");
     if (alice != null)
     {
+        // Set email if not present
+        if (string.IsNullOrEmpty(alice.Email))
+        {
+            alice.Email = "alice.admin@bellwood.example";
+            alice.EmailConfirmed = true;
+            await um.UpdateAsync(alice);
+        }
+        
         var aliceRoles = await um.GetRolesAsync(alice);
         if (!aliceRoles.Contains("admin"))
         {
             await um.AddToRoleAsync(alice, "admin");
+        }
+        
+        // Add email claim if not present
+        var aliceClaims = await um.GetClaimsAsync(alice);
+        if (!aliceClaims.Any(c => c.Type == "email"))
+        {
+            await um.AddClaimAsync(alice, new Claim("email", alice.Email));
         }
     }
     
     var bob = await um.FindByNameAsync("bob");
     if (bob != null)
     {
+        // Set email if not present
+        if (string.IsNullOrEmpty(bob.Email))
+        {
+            bob.Email = "bob.admin@bellwood.example";
+            bob.EmailConfirmed = true;
+            await um.UpdateAsync(bob);
+        }
+        
         var bobRoles = await um.GetRolesAsync(bob);
         if (!bobRoles.Contains("admin"))
         {
             await um.AddToRoleAsync(bob, "admin");
+        }
+        
+        // Add email claim if not present
+        var bobClaims = await um.GetClaimsAsync(bob);
+        if (!bobClaims.Any(c => c.Type == "email"))
+        {
+            await um.AddClaimAsync(bob, new Claim("email", bob.Email));
         }
     }
     
