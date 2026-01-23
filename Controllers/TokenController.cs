@@ -82,6 +82,7 @@ public class TokenController : ControllerBase
         var claims = new List<Claim> {
             new("sub", user.UserName!),
             new("uid", user.Id),
+            new("userId", user.Id),  // PHASE 1: Always Identity GUID for audit tracking
             new("scope", string.IsNullOrWhiteSpace(scope) ? "api.rides offline_access" : scope!)
         };
         
@@ -92,13 +93,25 @@ public class TokenController : ControllerBase
             claims.Add(new Claim("role", role));
         }
         
-        // Add custom uid claim if exists (overrides default user.Id)
+        // Add email claim if exists
         var userClaims = await _users.GetClaimsAsync(user);
+        var emailClaim = userClaims.FirstOrDefault(c => c.Type == "email");
+        if (emailClaim != null)
+        {
+            claims.Add(emailClaim);
+        }
+        else if (!string.IsNullOrEmpty(user.Email))
+        {
+            claims.Add(new Claim("email", user.Email));
+        }
+        
+        // Add custom uid claim if exists (overrides default uid, userId remains Identity GUID)
         var customUid = userClaims.FirstOrDefault(c => c.Type == "uid");
         if (customUid != null)
         {
             claims.RemoveAll(c => c.Type == "uid");
             claims.Add(customUid);
+            // Note: userId claim is NOT overridden - it always contains Identity GUID
         }
         
         var jwt = new JwtSecurityToken(claims: claims, expires: DateTime.UtcNow.AddHours(1), signingCredentials: creds);

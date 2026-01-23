@@ -47,7 +47,30 @@ builder.Services
       };
   });
 
-builder.Services.AddAuthorization();
+// PHASE 2: Authorization policies for role-based access control
+builder.Services.AddAuthorization(options =>
+{
+    // AdminOnly: Requires admin role
+    // Use for: User management, role assignment, sensitive operations
+    options.AddPolicy("AdminOnly", policy =>
+        policy.RequireRole("admin"));
+    
+    // StaffOnly: Requires admin OR dispatcher role
+    // Use for: Operational endpoints accessible to both admins and dispatchers
+    options.AddPolicy("StaffOnly", policy =>
+        policy.RequireRole("admin", "dispatcher"));
+    
+    // DriverOnly: Requires driver role (already used in AdminAPI)
+    // Included here for completeness
+    options.AddPolicy("DriverOnly", policy =>
+        policy.RequireRole("driver"));
+    
+    // BookerOnly: Requires booker role
+    // Use for: Passenger-specific endpoints
+    options.AddPolicy("BookerOnly", policy =>
+        policy.RequireRole("booker"));
+});
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -90,20 +113,50 @@ using (var scope = app.Services.CreateScope())
     var alice = await um.FindByNameAsync("alice");
     if (alice != null)
     {
+        // Set email if not present
+        if (string.IsNullOrEmpty(alice.Email))
+        {
+            alice.Email = "alice.admin@bellwood.example";
+            alice.EmailConfirmed = true;
+            await um.UpdateAsync(alice);
+        }
+        
         var aliceRoles = await um.GetRolesAsync(alice);
         if (!aliceRoles.Contains("admin"))
         {
             await um.AddToRoleAsync(alice, "admin");
+        }
+        
+        // Add email claim if not present
+        var aliceClaims = await um.GetClaimsAsync(alice);
+        if (!aliceClaims.Any(c => c.Type == "email"))
+        {
+            await um.AddClaimAsync(alice, new Claim("email", alice.Email));
         }
     }
     
     var bob = await um.FindByNameAsync("bob");
     if (bob != null)
     {
+        // Set email if not present
+        if (string.IsNullOrEmpty(bob.Email))
+        {
+            bob.Email = "bob.admin@bellwood.example";
+            bob.EmailConfirmed = true;
+            await um.UpdateAsync(bob);
+        }
+        
         var bobRoles = await um.GetRolesAsync(bob);
         if (!bobRoles.Contains("admin"))
         {
             await um.AddToRoleAsync(bob, "admin");
+        }
+        
+        // Add email claim if not present
+        var bobClaims = await um.GetClaimsAsync(bob);
+        if (!bobClaims.Any(c => c.Type == "email"))
+        {
+            await um.AddClaimAsync(bob, new Claim("email", bob.Email));
         }
     }
     
@@ -218,6 +271,9 @@ using (var scope = app.Services.CreateScope())
     // Additional test drivers with GUID-based UIDs
     await EnsureDriverUser("driver_dave", "password", Guid.NewGuid().ToString("N"));
     await EnsureDriverUser("driver_eve", "password", Guid.NewGuid().ToString("N"));
+    
+    // PHASE 2: Seed dispatcher role and test user
+    await Phase2RolePreparation.SeedDispatcherRole(rm, um);
 }
 
 // Pipeline
@@ -257,7 +313,8 @@ app.MapPost("/login",
     var claims = new List<Claim>
     {
         new Claim("sub", user.UserName!),
-        new Claim("uid", user.Id)
+        new Claim("uid", user.Id),
+        new Claim("userId", user.Id)  // PHASE 1: Always Identity GUID for audit tracking
     };
     
     // Add role claims
@@ -282,12 +339,13 @@ app.MapPost("/login",
         claims.Add(new Claim("email", user.Email));
     }
     
-    // Add custom uid claim if exists (overrides default uid)
+    // Add custom uid claim if exists (overrides default uid, userId remains Identity GUID)
     var customUid = userClaims.FirstOrDefault(c => c.Type == "uid");
     if (customUid != null)
     {
         claims.RemoveAll(c => c.Type == "uid");
         claims.Add(customUid);
+        // Note: userId claim is NOT overridden - it always contains Identity GUID
     }
 
     var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
@@ -334,7 +392,8 @@ app.MapPost("/api/auth/login",
     var claims = new List<Claim>
     {
         new Claim("sub", user.UserName!),
-        new Claim("uid", user.Id)
+        new Claim("uid", user.Id),
+        new Claim("userId", user.Id)  // PHASE 1: Always Identity GUID for audit tracking
     };
     
     // Add role claims
@@ -359,12 +418,13 @@ app.MapPost("/api/auth/login",
         claims.Add(new Claim("email", user.Email));
     }
     
-    // Add custom uid claim if exists (overrides default uid)
+    // Add custom uid claim if exists (overrides default uid, userId remains Identity GUID)
     var customUid = userClaims.FirstOrDefault(c => c.Type == "uid");
     if (customUid != null)
     {
         claims.RemoveAll(c => c.Type == "uid");
         claims.Add(customUid);
+        // Note: userId claim is NOT overridden - it always contains Identity GUID
     }
 
     var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
@@ -450,6 +510,27 @@ app.MapGet("/dev/user-info/{username}",
     // Check for driver-specific configuration
     var hasDriverRole = roles.Contains("driver");
     var uidClaim = claims.FirstOrDefault(c => c.Type == "uid");
+    var emailClaim = claims.FirstOrDefault(c => c.Type == "email");
+    
+    // Simulate what the JWT would contain (Phase 1 structure)
+    var jwtClaimsPreview = new List<object>
+    {
+        new { Type = "sub", Value = user.UserName },
+        new { Type = "uid", Value = uidClaim?.Value ?? user.Id },
+        new { Type = "userId", Value = user.Id }  // PHASE 1: Always Identity GUID
+    };
+    
+    // Add roles to preview
+    foreach (var role in roles)
+    {
+        jwtClaimsPreview.Add(new { Type = "role", Value = role });
+    }
+    
+    // Add email if available
+    if (emailClaim != null || !string.IsNullOrEmpty(user.Email))
+    {
+        jwtClaimsPreview.Add(new { Type = "email", Value = emailClaim?.Value ?? user.Email });
+    }
     
     return Results.Ok(new
     {
@@ -457,18 +538,107 @@ app.MapGet("/dev/user-info/{username}",
         username = user.UserName,
         email = user.Email,
         roles = roles,
-        claims = claims.Select(c => new { c.Type, c.Value }).ToList(),
+        userClaims = claims.Select(c => new { c.Type, c.Value }).ToList(),
+        // PHASE 1: Preview of JWT claims structure
+        jwtClaimsPreview,
         // Diagnostic flags
         diagnostics = new
         {
             hasDriverRole,
-            hasUidClaim = uidClaim != null,
-            uidValue = uidClaim?.Value,
-            canAccessDriverEndpoints = hasDriverRole, // 403 will occur if false
-            warning = !hasDriverRole ? "?? User missing 'driver' role - will get 403 on driver endpoints" : null
+            hasCustomUid = uidClaim != null,
+            customUidValue = uidClaim?.Value,
+            identityGuid = user.Id,
+            hasEmail = emailClaim != null || !string.IsNullOrEmpty(user.Email),
+            phase1Ready = true,
+            notes = new
+            {
+                uidClaim = uidClaim != null 
+                    ? "Custom UID will override default in JWT (driver pattern)" 
+                    : "JWT will use Identity GUID for uid claim",
+                userIdClaim = "Phase 1: userId claim always contains Identity GUID for audit tracking",
+                auditRecommendation = "AdminAPI should use 'userId' claim for CreatedByUserId field"
+            }
         }
     });
 }).AllowAnonymous();
+
+// PHASE 2: Role assignment endpoint (admin-only)
+app.MapPut("/api/admin/users/{username}/role",
+    async (
+        string username,
+        RoleAssignmentRequest? request,
+        UserManager<IdentityUser> um,
+        RoleManager<IdentityRole> rm) =>
+{
+    if (request is null || string.IsNullOrWhiteSpace(request.Role))
+    {
+        return Results.BadRequest(new { error = "Role is required in request body." });
+    }
+
+    // Validate role exists
+    var validRoles = new[] { "admin", "dispatcher", "booker", "driver" };
+    var requestedRole = request.Role.ToLowerInvariant();
+    
+    if (!validRoles.Contains(requestedRole))
+    {
+        return Results.BadRequest(new 
+        { 
+            error = $"Invalid role '{request.Role}'. Valid roles are: {string.Join(", ", validRoles)}" 
+        });
+    }
+
+    // Find user
+    var user = await um.FindByNameAsync(username);
+    if (user is null)
+    {
+        return Results.NotFound(new { error = $"User '{username}' not found." });
+    }
+
+    // Get current roles
+    var currentRoles = await um.GetRolesAsync(user);
+    
+    // Check if user already has this role
+    if (currentRoles.Contains(requestedRole))
+    {
+        return Results.Ok(new 
+        { 
+            message = $"User '{username}' already has role '{requestedRole}'.",
+            username = user.UserName,
+            role = requestedRole,
+            previousRoles = currentRoles
+        });
+    }
+
+    // Remove all existing roles (mutually exclusive strategy)
+    if (currentRoles.Any())
+    {
+        var removeResult = await um.RemoveFromRolesAsync(user, currentRoles);
+        if (!removeResult.Succeeded)
+        {
+            return Results.Problem(
+                detail: string.Join(", ", removeResult.Errors.Select(e => e.Description)),
+                title: "Failed to remove existing roles");
+        }
+    }
+
+    // Add new role
+    var addResult = await um.AddToRoleAsync(user, requestedRole);
+    if (!addResult.Succeeded)
+    {
+        return Results.Problem(
+            detail: string.Join(", ", addResult.Errors.Select(e => e.Description)),
+            title: "Failed to assign new role");
+    }
+
+    return Results.Ok(new
+    {
+        message = $"Successfully assigned role '{requestedRole}' to user '{username}'.",
+        username = user.UserName,
+        previousRoles = currentRoles,
+        newRole = requestedRole
+    });
+})
+.RequireAuthorization("AdminOnly");
 
 // Health endpoints (anonymous)
 app.MapGet("/health", () => Results.Ok("ok")).AllowAnonymous();
@@ -476,5 +646,8 @@ app.MapGet("/healthz", () => Results.Ok("ok")).AllowAnonymous();
 
 app.Run();
 
-// DTO
+// DTOs
 public record LoginRequest(string Username, string Password);
+
+// PHASE 2: Role assignment request
+public record RoleAssignmentRequest(string Role);
