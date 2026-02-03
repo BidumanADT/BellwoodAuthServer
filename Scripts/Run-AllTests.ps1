@@ -27,7 +27,7 @@ Add-Type @"
     }
 "@
 [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
-[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls11 -bor [System.Net.SecurityProtocolType]::Tls
 
 # Test results tracking
 $script:TotalTests = 0
@@ -91,6 +91,78 @@ function Add-TestResult {
     }
 }
 
+function Initialize-ServerConnection {
+    param([string]$Url)
+    
+    Write-Host "Initializing server connection..." -ForegroundColor Yellow
+    
+    # Test 1: Basic Network Connectivity
+    $uri = [System.Uri]$Url
+    $hostname = $uri.Host
+    $port = $uri.Port
+
+    try {
+        Write-Host "  Testing network connectivity to ${hostname}:${port}..." -ForegroundColor Gray
+        $tcpClient = New-Object System.Net.Sockets.TcpClient
+        $tcpClient.Connect($hostname, $port)
+        $tcpClient.Close()
+        Write-Host "  ? Network connection established" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "  ? Cannot connect to ${hostname}:${port}" -ForegroundColor Red
+        Write-Host "    Error: $($_.Exception.Message)" -ForegroundColor Gray
+        return $false
+    }
+
+    # Test 2: HTTP Request to initialize connection
+    try {
+        Write-Host "  Initializing HTTP connection..." -ForegroundColor Gray
+        $request = [System.Net.WebRequest]::Create("$Url/health")
+        $request.Method = "GET"
+        $request.Timeout = 10000
+        
+        $response = $request.GetResponse()
+        Write-Host "  ? HTTP connection initialized" -ForegroundColor Green
+        $response.Close()
+    }
+    catch {
+        Write-Host "  ? HTTP initialization warning (may be normal for HTTPS)" -ForegroundColor Yellow
+    }
+
+    # Test 3: Invoke-WebRequest to warm up
+    try {
+        Write-Host "  Warming up WebRequest..." -ForegroundColor Gray
+        $null = Invoke-WebRequest -Uri "$Url/health" `
+            -Method Get `
+            -TimeoutSec 10 `
+            -UseBasicParsing `
+            -ErrorAction SilentlyContinue
+        Write-Host "  ? WebRequest warmed up" -ForegroundColor Green
+    }
+    catch {
+        # Ignore errors here
+    }
+
+    # Test 4: Invoke-RestMethod final test
+    try {
+        Write-Host "  Testing RestMethod..." -ForegroundColor Gray
+        $response = Invoke-RestMethod -Uri "$Url/health" `
+            -Method Get `
+            -TimeoutSec 10
+        
+        if ($response -eq "ok") {
+            Write-Host "  ? RestMethod working correctly" -ForegroundColor Green
+            return $true
+        }
+    }
+    catch {
+        Write-Host "  ? RestMethod test failed: $($_.Exception.Message)" -ForegroundColor Red
+        return $false
+    }
+    
+    return $true
+}
+
 function Test-ServerHealth {
     param(
         [int]$MaxRetries = 3,
@@ -149,14 +221,31 @@ Write-Host "  Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 Write-Host "  PowerShell Version: $($PSVersionTable.PSVersion)"
 Write-Host ""
 
-# Pre-flight check
-Write-Host "Pre-flight check: Verifying server is running..." -ForegroundColor Yellow
+# Initialize connection first (this is the key!)
+Write-Host ""
+if (-not (Initialize-ServerConnection -Url $AuthServerUrl)) {
+    Write-Host ""
+    Write-Host "? Server connection initialization failed!" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Troubleshooting:" -ForegroundColor Yellow
+    Write-Host "  1. Verify server is running:" -ForegroundColor Gray
+    Write-Host "     dotnet run" -ForegroundColor Gray
+    Write-Host "  2. Check server logs for errors" -ForegroundColor Gray
+    Write-Host "  3. Verify URL is correct: $AuthServerUrl" -ForegroundColor Gray
+    Write-Host ""
+    exit 1
+}
 
 # Optional startup delay
 if ($StartupDelay -gt 0) {
-    Write-Host "  Waiting $StartupDelay seconds for server to fully start..." -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "Waiting $StartupDelay seconds for server to fully start..." -ForegroundColor Yellow
     Start-Sleep -Seconds $StartupDelay
 }
+
+# Pre-flight check
+Write-Host ""
+Write-Host "Pre-flight check: Verifying server is healthy..." -ForegroundColor Yellow
 
 if (Test-ServerHealth) {
     Write-Host "? Server is running and healthy" -ForegroundColor Green

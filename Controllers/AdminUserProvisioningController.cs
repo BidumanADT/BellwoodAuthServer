@@ -233,7 +233,7 @@ public class AdminUserProvisioningController : ControllerBase
             Email = user.Email ?? string.Empty,
             FirstName = null,
             LastName = null,
-            Roles = roles.ToList(),
+            Roles = roles.Select(r => r.ToLowerInvariant()).ToList(), // Normalize roles in response
             IsDisabled = isDisabled,
             CreatedAtUtc = null,
             ModifiedAtUtc = null

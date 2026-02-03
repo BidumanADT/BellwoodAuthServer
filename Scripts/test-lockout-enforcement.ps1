@@ -23,7 +23,10 @@ Add-Type @"
     }
 "@
 [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
-[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls11 -bor [System.Net.SecurityProtocolType]::Tls
+
+$script:TestsPassed = 0
+$script:TestsFailed = 0
 
 Write-Host "??????????????????????????????????????????????????????????????" -ForegroundColor Cyan
 Write-Host "?         Lockout Enforcement - Critical Test               ?" -ForegroundColor Cyan
@@ -58,27 +61,53 @@ try {
         Authorization = "Bearer $script:AdminToken"
     }
     
-    $body = @{
-        email = $TestEmail
-        tempPassword = $TestPassword
-        roles = @("booker")
-    } | ConvertTo-Json
+    # First, try to delete the user if it exists (cleanup from previous run)
+    try {
+        $existingUsers = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning?take=100" `
+            -Method Get `
+            -Headers $headers
+        
+        $existingUser = $existingUsers | Where-Object { $_.email -eq $TestEmail }
+        if ($existingUser) {
+            Write-Host "  Cleaning up existing test user from previous run..." -ForegroundColor Gray
+            # Note: We don't have a delete endpoint, so we'll skip creation if exists
+            $script:TestUserId = $existingUser.userId
+            Write-Host "  ? Using existing test user (ID: $script:TestUserId)" -ForegroundColor Green
+            
+            # Make sure user is enabled for testing
+            try {
+                Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning/$script:TestUserId/enable" `
+                    -Method Put `
+                    -Headers $headers | Out-Null
+            }
+            catch { }
+        }
+    }
+    catch {
+        # Ignore errors checking for existing user
+    }
+    
+    # Only create if we don't have a user ID
+    if (-not $script:TestUserId) {
+        $body = @{
+            email = $TestEmail
+            tempPassword = $TestPassword
+            roles = @("booker")
+        } | ConvertTo-Json
 
-    $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning" `
-        -Method Post `
-        -Headers $headers `
-        -ContentType "application/json" `
-        -Body $body
+        $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning" `
+            -Method Post `
+            -Headers $headers `
+            -ContentType "application/json" `
+            -Body $body
 
-    $script:TestUserId = $response.userId
-    Write-Host "? Test user created (ID: $script:TestUserId)" -ForegroundColor Green
+        $script:TestUserId = $response.userId
+        Write-Host "  ? Test user created (ID: $script:TestUserId)" -ForegroundColor Green
+    }
 }
 catch {
-    Write-Host "? Failed to create test user: $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host "  (User may already exist - continuing...)" -ForegroundColor Yellow
-    
-    # If user exists, try to get their ID
-    # For now, we'll proceed
+    Write-Host "  ? Failed to create test user: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "    This might be expected if user exists from previous run" -ForegroundColor Yellow
 }
 
 # Step 3: Verify user can login
@@ -170,24 +199,65 @@ catch {
 # Step 6: Enable user
 Write-Host "`nStep 6: Re-enabling user..." -ForegroundColor Yellow
 if ($script:TestUserId) {
-    try {
-        $headers = @{
-            Authorization = "Bearer $script:AdminToken"
-        }
+    $maxRetries = 3
+    $retryDelay = 2
+    $success = $false
+    
+    for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+        try {
+            if ($attempt -gt 1) {
+                Write-Host "  Retry attempt $attempt of $maxRetries..." -ForegroundColor Gray
+            }
+            
+            $headers = @{
+                Authorization = "Bearer $script:AdminToken"
+            }
 
-        $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning/$script:TestUserId/enable" `
-            -Method Put `
-            -Headers $headers
+            # Use WebRequest instead of RestMethod to avoid connection pooling issues
+            $request = [System.Net.HttpWebRequest]::Create("$AuthServerUrl/api/admin/provisioning/$script:TestUserId/enable")
+            $request.Method = "PUT"
+            $request.Headers.Add("Authorization", "Bearer $script:AdminToken")
+            $request.KeepAlive = $false  # Don't reuse connection
+            $request.Timeout = 30000
+            
+            $response = $request.GetResponse()
+            $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
+            $jsonResponse = $reader.ReadToEnd()
+            $reader.Close()
+            $response.Close()
+            
+            $data = $jsonResponse | ConvertFrom-Json
 
-        if ($response.isDisabled -eq $false) {
-            Write-Host "? User enabled successfully (isDisabled: $($response.isDisabled))" -ForegroundColor Green
+            if ($data.isDisabled -eq $false) {
+                Write-Host "? User enabled successfully (isDisabled: $($data.isDisabled))" -ForegroundColor Green
+                $success = $true
+                break
+            }
+            else {
+                Write-Host "? User enable returned unexpected value: isDisabled = $($data.isDisabled)" -ForegroundColor Yellow
+                break
+            }
         }
-        else {
-            Write-Host "? User enable returned unexpected value: isDisabled = $($response.isDisabled)" -ForegroundColor Yellow
+        catch {
+            $errorMsg = $_.Exception.Message
+            $innerMsg = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { "None" }
+            
+            if ($attempt -lt $maxRetries) {
+                Write-Host "  Attempt $attempt failed: $errorMsg" -ForegroundColor Gray
+                if ($innerMsg -ne "None") {
+                    Write-Host "  Inner exception: $innerMsg" -ForegroundColor Gray
+                }
+                Write-Host "  Waiting $retryDelay seconds before retry..." -ForegroundColor Gray
+                Start-Sleep -Seconds $retryDelay
+            }
+            else {
+                Write-Host "? Failed to enable user after $maxRetries attempts" -ForegroundColor Red
+                Write-Host "  Last error: $errorMsg" -ForegroundColor Gray
+                if ($innerMsg -ne "None") {
+                    Write-Host "  Inner exception: $innerMsg" -ForegroundColor Gray
+                }
+            }
         }
-    }
-    catch {
-        Write-Host "? Failed to enable user: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
 else {

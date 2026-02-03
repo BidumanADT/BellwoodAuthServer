@@ -19,7 +19,7 @@ Add-Type @"
     }
 "@
 [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
-[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls11 -bor [System.Net.SecurityProtocolType]::Tls
 
 $script:TestsPassed = 0
 $script:TestsFailed = 0
@@ -83,7 +83,7 @@ catch {
 }
 
 # Test 2: Create User
-Write-Host "`nTest 2: Create User"
+Write-Host "`nTest 2: Create User" -ForegroundColor Yellow
 try {
     $headers = @{
         Authorization = "Bearer $script:AdminToken"
@@ -110,7 +110,41 @@ try {
     }
 }
 catch {
-    Test-Fail "Failed to create user: $($_.Exception.Message)"
+    $statusCode = $_.Exception.Response.StatusCode.value__
+    if ($statusCode -eq 409) {
+        # User exists - fetch and enable it
+        try {
+            $allUsers = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning?take=100" `
+                -Method Get `
+                -Headers $headers
+            
+            $existingUser = $allUsers | Where-Object { $_.email -eq "provisiontest@example.com" }
+            if ($existingUser) {
+                $script:TestUserId = $existingUser.userId
+                
+                # Enable user if disabled
+                if ($existingUser.isDisabled) {
+                    try {
+                        Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning/$script:TestUserId/enable" `
+                            -Method Put `
+                            -Headers $headers | Out-Null
+                    }
+                    catch { }
+                }
+                
+                Test-Pass "Using existing user (ID: $($existingUser.userId))"
+            }
+            else {
+                Test-Fail "User exists but couldn't fetch details"
+            }
+        }
+        catch {
+            Test-Fail "Failed to fetch existing user"
+        }
+    }
+    else {
+        Test-Fail "Failed to create user: $($_.Exception.Message)"
+    }
 }
 
 # Test 3: Verify User Can Login
@@ -223,26 +257,63 @@ catch {
 }
 
 # Test 7: Enable User
-Write-Host "`nTest 7: Enable User"
+Write-Host "`nTest 7: Enable User" -ForegroundColor Yellow
 if ($script:TestUserId) {
-    try {
-        $headers = @{
-            Authorization = "Bearer $script:AdminToken"
-        }
+    $maxRetries = 3
+    $retryDelay = 2
+    $success = $false
+    
+    for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+        try {
+            if ($attempt -gt 1) {
+                Write-Host "  Retry attempt $attempt of $maxRetries..." -ForegroundColor Gray
+            }
+            
+            $headers = @{
+                Authorization = "Bearer $script:AdminToken"
+            }
 
-        $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning/$script:TestUserId/enable" `
-            -Method Put `
-            -Headers $headers
+            # Use WebRequest instead of RestMethod to avoid connection pooling issues
+            $request = [System.Net.HttpWebRequest]::Create("$AuthServerUrl/api/admin/provisioning/$script:TestUserId/enable")
+            $request.Method = "PUT"
+            $request.Headers.Add("Authorization", "Bearer $script:AdminToken")
+            $request.KeepAlive = $false  # Don't reuse connection
+            $request.Timeout = 30000
+            
+            $response = $request.GetResponse()
+            $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
+            $jsonResponse = $reader.ReadToEnd()
+            $reader.Close()
+            $response.Close()
+            
+            $data = $jsonResponse | ConvertFrom-Json
 
-        if ($response.isDisabled -eq $false) {
-            Test-Pass "User enabled successfully"
+            if ($data.isDisabled -eq $false) {
+                Test-Pass "User enabled successfully"
+                $success = $true
+                break
+            }
+            else {
+                Test-Fail "User enable returned unexpected value: isDisabled = $($data.isDisabled)"
+                break
+            }
         }
-        else {
-            Test-Fail "User enable returned unexpected value: isDisabled = $($response.isDisabled)"
+        catch {
+            $errorMsg = $_.Exception.Message
+            $innerMsg = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { "None" }
+            
+            if ($attempt -lt $maxRetries) {
+                Write-Host "  Attempt $attempt failed: $errorMsg" -ForegroundColor Gray
+                if ($innerMsg -ne "None") {
+                    Write-Host "  Inner exception: $innerMsg" -ForegroundColor Gray
+                }
+                Write-Host "  Waiting $retryDelay seconds before retry..." -ForegroundColor Gray
+                Start-Sleep -Seconds $retryDelay
+            }
+            else {
+                Test-Fail "Failed to enable user after $maxRetries attempts: $errorMsg"
+            }
         }
-    }
-    catch {
-        Test-Fail "Failed to enable user: $($_.Exception.Message)"
     }
 }
 else {

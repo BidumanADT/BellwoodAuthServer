@@ -19,7 +19,7 @@ Add-Type @"
     }
 "@
 [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
-[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls11 -bor [System.Net.SecurityProtocolType]::Tls
 
 $script:TestsPassed = 0
 $script:TestsFailed = 0
@@ -61,7 +61,7 @@ catch {
 }
 
 # Test 1: Mixed Case Roles Normalized
-Write-Host "`nTest 1: Mixed Case Roles Normalized to Lowercase"
+Write-Host "`nTest 1: Mixed Case Roles Normalized to Lowercase" -ForegroundColor Yellow
 try {
     $headers = @{
         Authorization = "Bearer $script:AdminToken"
@@ -97,11 +97,49 @@ try {
     $script:TestUser1Id = $response.userId
 }
 catch {
-    Test-Fail "Failed to create user with mixed case roles: $($_.Exception.Message)"
+    $statusCode = $_.Exception.Response.StatusCode.value__
+    if ($statusCode -eq 409) {
+        # User exists from previous run - fetch it
+        try {
+            $allUsers = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning?take=100" `
+                -Method Get `
+                -Headers $headers
+            
+            $existingUser = $allUsers | Where-Object { $_.email -eq "roletest1@example.com" }
+            if ($existingUser) {
+                $script:TestUser1Id = $existingUser.userId
+                
+                # Check roles
+                $allLowercase = $true
+                foreach ($role in $existingUser.roles) {
+                    if ($role -cne $role.ToLower()) {
+                        $allLowercase = $false
+                        break
+                    }
+                }
+                
+                if ($allLowercase) {
+                    Test-Pass "All roles normalized to lowercase (existing user): $($existingUser.roles -join ', ')"
+                }
+                else {
+                    Test-Fail "Roles not normalized (existing user): $($existingUser.roles -join ', ')"
+                }
+            }
+            else {
+                Test-Fail "User exists but couldn't fetch details"
+            }
+        }
+        catch {
+            Test-Fail "Failed to fetch existing user: $($_.Exception.Message)"
+        }
+    }
+    else {
+        Test-Fail "Failed to create user with mixed case roles: $($_.Exception.Message)"
+    }
 }
 
 # Test 2: Update Roles with Mixed Case
-Write-Host "`nTest 2: Update Roles with Mixed Case"
+Write-Host "`nTest 2: Update Roles with Mixed Case" -ForegroundColor Yellow
 if ($script:TestUser1Id) {
     try {
         $headers = @{
@@ -118,11 +156,22 @@ if ($script:TestUser1Id) {
             -ContentType "application/json" `
             -Body $body
 
-        if ($response.roles -contains "booker" -and -not ($response.roles -contains "BOOKER")) {
-            Test-Pass "Updated role normalized to lowercase: $($response.roles -join ', ')"
+        # Ensure roles is treated as array
+        $rolesList = @($response.roles)
+        $allLowercase = $true
+        
+        foreach ($role in $rolesList) {
+            if ($role -cne $role.ToLower()) {
+                $allLowercase = $false
+                break
+            }
+        }
+
+        if ($allLowercase -and ($rolesList -contains "booker")) {
+            Test-Pass "Updated role normalized to lowercase: $($rolesList -join ', ')"
         }
         else {
-            Test-Fail "Updated role not normalized: $($response.roles -join ', ')"
+            Test-Fail "Updated role not normalized correctly: $($rolesList -join ', ')"
         }
     }
     catch {
@@ -134,7 +183,7 @@ else {
 }
 
 # Test 3: All Uppercase Roles
-Write-Host "`nTest 3: All Uppercase Roles Normalized"
+Write-Host "`nTest 3: All Uppercase Roles Normalized" -ForegroundColor Yellow
 try {
     $headers = @{
         Authorization = "Bearer $script:AdminToken"
@@ -152,21 +201,69 @@ try {
         -ContentType "application/json" `
         -Body $body
 
-    if ($response.roles -contains "driver" -and -not ($response.roles -contains "DRIVER")) {
-        Test-Pass "Uppercase role normalized to lowercase: $($response.roles -join ', ')"
+    # Ensure roles is treated as array
+    $rolesList = @($response.roles)
+    $allLowercase = $true
+    
+    foreach ($role in $rolesList) {
+        if ($role -cne $role.ToLower()) {
+            $allLowercase = $false
+            break
+        }
+    }
+
+    if ($allLowercase -and ($rolesList -contains "driver")) {
+        Test-Pass "Uppercase role normalized to lowercase: $($rolesList -join ', ')"
     }
     else {
-        Test-Fail "Uppercase role not normalized: $($response.roles -join ', ')"
+        Test-Fail "Uppercase role not normalized correctly: $($rolesList -join ', ')"
     }
     
     $script:TestUser2Id = $response.userId
 }
 catch {
-    Test-Fail "Failed to create user with uppercase role: $($_.Exception.Message)"
+    $statusCode = $_.Exception.Response.StatusCode.value__
+    if ($statusCode -eq 409) {
+        # User exists - fetch and check
+        try {
+            $allUsers = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning?take=100" `
+                -Method Get `
+                -Headers $headers
+            
+            $existingUser = $allUsers | Where-Object { $_.email -eq "roletest2@example.com" }
+            if ($existingUser) {
+                $script:TestUser2Id = $existingUser.userId
+                
+                # Ensure roles is treated as array
+                $rolesList = @($existingUser.roles)
+                $allLowercase = $true
+                
+                foreach ($role in $rolesList) {
+                    if ($role -cne $role.ToLower()) {
+                        $allLowercase = $false
+                        break
+                    }
+                }
+
+                if ($allLowercase -and ($rolesList -contains "driver")) {
+                    Test-Pass "Uppercase role normalized to lowercase (existing user): $($rolesList -join ', ')"
+                }
+                else {
+                    Test-Fail "Uppercase role not normalized correctly (existing user): $($rolesList -join ', ')"
+                }
+            }
+        }
+        catch {
+            Test-Fail "Failed to fetch existing user"
+        }
+    }
+    else {
+        Test-Fail "Failed to create user with uppercase role: $($_.Exception.Message)"
+    }
 }
 
 # Test 4: Multiple Mixed Case Roles
-Write-Host "`nTest 4: Multiple Mixed Case Roles"
+Write-Host "`nTest 4: Multiple Mixed Case Roles" -ForegroundColor Yellow
 try {
     $headers = @{
         Authorization = "Bearer $script:AdminToken"
@@ -210,7 +307,48 @@ try {
     }
 }
 catch {
-    Test-Fail "Failed to create user with multiple mixed roles: $($_.Exception.Message)"
+    $statusCode = $_.Exception.Response.StatusCode.value__
+    if ($statusCode -eq 409) {
+        # User exists - fetch and check
+        try {
+            $allUsers = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning?take=100" `
+                -Method Get `
+                -Headers $headers
+            
+            $existingUser = $allUsers | Where-Object { $_.email -eq "roletest3@example.com" }
+            if ($existingUser) {
+                $expectedRoles = @("admin", "dispatcher", "booker")
+                $allCorrect = $true
+                
+                foreach ($expectedRole in $expectedRoles) {
+                    if (-not ($existingUser.roles -contains $expectedRole)) {
+                        $allCorrect = $false
+                        break
+                    }
+                }
+                
+                foreach ($role in $existingUser.roles) {
+                    if ($role -cne $role.ToLower()) {
+                        $allCorrect = $false
+                        break
+                    }
+                }
+
+                if ($allCorrect) {
+                    Test-Pass "Multiple roles all normalized to lowercase (existing user)"
+                }
+                else {
+                    Test-Fail "Some roles not normalized correctly (existing user): $($existingUser.roles -join ', ')"
+                }
+            }
+        }
+        catch {
+            Test-Fail "Failed to fetch existing user"
+        }
+    }
+    else {
+        Test-Fail "Failed to create user with multiple mixed roles: $($_.Exception.Message)"
+    }
 }
 
 # Test 5: Role Validation Still Works

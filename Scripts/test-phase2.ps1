@@ -75,7 +75,7 @@ Add-Type @"
     }
 "@
 [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
-[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls11 -bor [System.Net.SecurityProtocolType]::Tls
 
 Write-Host "??????????????????????????????????????????????????????????????" -ForegroundColor Cyan
 Write-Host "?         AuthServer Phase 2 - Functional Tests             ?" -ForegroundColor Cyan
@@ -177,20 +177,79 @@ catch {
 # ============================================================================
 Print-Test -Number 4 -Description "Admin Can Access Admin Endpoints"
 
-try {
-    $headers = @{
-        Authorization = "Bearer $script:AdminToken"
+$maxRetries = 3
+$retryDelay = 2
+$success = $false
+
+for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+    try {
+        if ($attempt -gt 1) {
+            Print-Info "Retry attempt $attempt of $maxRetries..."
+        }
+        
+        $headers = @{
+            Authorization = "Bearer $script:AdminToken"
+        }
+        
+        # Reset connection by using WebRequest instead of RestMethod on first attempt
+        if ($attempt -eq 1) {
+            try {
+                $request = [System.Net.HttpWebRequest]::Create("$AuthServerUrl/api/admin/users/drivers")
+                $request.Method = "GET"
+                $request.Headers.Add("Authorization", "Bearer $script:AdminToken")
+                $request.KeepAlive = $false  # Don't reuse connection
+                $request.Timeout = 30000
+                
+                $response = $request.GetResponse()
+                $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
+                $jsonResponse = $reader.ReadToEnd()
+                $reader.Close()
+                $response.Close()
+                
+                $data = $jsonResponse | ConvertFrom-Json
+                
+                Print-Pass "Admin can access admin endpoints (200 OK)"
+                Print-Info "Found $($data.Count) driver users"
+                $success = $true
+                break
+            }
+            catch {
+                # Fall through to retry with RestMethod
+                Print-Info "WebRequest attempt failed, trying RestMethod..."
+            }
+        }
+        
+        # Use RestMethod (simpler, may work after WebRequest clears connection)
+        $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users/drivers" `
+            -Method Get `
+            -Headers $headers `
+            -TimeoutSec 30
+        
+        Print-Pass "Admin can access admin endpoints (200 OK)"
+        Print-Info "Found $($response.Count) driver users"
+        $success = $true
+        break
     }
-    
-    $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users/drivers" `
-        -Method Get `
-        -Headers $headers
-    
-    Print-Pass "Admin can access admin endpoints (200 OK)"
-    Print-Info "Found $($response.Count) driver users"
-}
-catch {
-    Print-Fail "Request failed: $($_.Exception.Message)"
+    catch {
+        $errorMsg = $_.Exception.Message
+        $innerMsg = if ($_.Exception.InnerException) { $_.Exception.InnerException.Message } else { "None" }
+        
+        if ($attempt -lt $maxRetries) {
+            Print-Info "Attempt $attempt failed: $errorMsg"
+            if ($innerMsg -ne "None") {
+                Print-Info "Inner exception: $innerMsg"
+            }
+            Print-Info "Waiting $retryDelay seconds before retry..."
+            Start-Sleep -Seconds $retryDelay
+        }
+        else {
+            Print-Fail "Request failed after $maxRetries attempts"
+            Print-Info "Last error: $errorMsg"
+            if ($innerMsg -ne "None") {
+                Print-Info "Inner exception: $innerMsg"
+            }
+        }
+    }
 }
 
 # ============================================================================
