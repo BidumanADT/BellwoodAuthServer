@@ -9,7 +9,9 @@ param(
     [switch]$SkipLockout,
     [switch]$SkipRoles,
     [switch]$SkipProvisioning,
-    [switch]$StopOnError
+    [switch]$StopOnError,
+    [int]$StartupDelay = 0,
+    [switch]$Verbose
 )
 
 # Suppress SSL validation warnings
@@ -90,16 +92,50 @@ function Add-TestResult {
 }
 
 function Test-ServerHealth {
-    try {
-        $response = Invoke-RestMethod -Uri "$AuthServerUrl/health" -Method Get -TimeoutSec 5
-        if ($response -eq "ok") {
-            return $true
+    param(
+        [int]$MaxRetries = 3,
+        [int]$RetryDelay = 2
+    )
+    
+    for ($i = 1; $i -le $MaxRetries; $i++) {
+        try {
+            if ($Verbose) {
+                Write-Host "  Attempt $i of ${MaxRetries}..." -ForegroundColor Gray
+                Write-Host "    Testing: $AuthServerUrl/health" -ForegroundColor Gray
+            }
+            else {
+                Write-Host "  Attempt $i of ${MaxRetries}..." -ForegroundColor Gray
+            }
+            
+            $response = Invoke-RestMethod -Uri "$AuthServerUrl/health" `
+                -Method Get `
+                -TimeoutSec 10 `
+                -ErrorAction Stop
+            
+            if ($Verbose) {
+                Write-Host "    Response: $response" -ForegroundColor Gray
+            }
+            
+            if ($response -eq "ok") {
+                return $true
+            }
         }
-        return $false
+        catch {
+            if ($Verbose) {
+                Write-Host "    Full Error: $($_.Exception.ToString())" -ForegroundColor Gray
+            }
+            else {
+                Write-Host "    Error: $($_.Exception.Message)" -ForegroundColor Gray
+            }
+            
+            if ($i -lt $MaxRetries) {
+                Write-Host "    Waiting ${RetryDelay} seconds before retry..." -ForegroundColor Gray
+                Start-Sleep -Seconds $RetryDelay
+            }
+        }
     }
-    catch {
-        return $false
-    }
+    
+    return $false
 }
 
 # Start test execution
@@ -115,16 +151,39 @@ Write-Host ""
 
 # Pre-flight check
 Write-Host "Pre-flight check: Verifying server is running..." -ForegroundColor Yellow
+
+# Optional startup delay
+if ($StartupDelay -gt 0) {
+    Write-Host "  Waiting $StartupDelay seconds for server to fully start..." -ForegroundColor Gray
+    Start-Sleep -Seconds $StartupDelay
+}
+
 if (Test-ServerHealth) {
     Write-Host "? Server is running and healthy" -ForegroundColor Green
 }
 else {
-    Write-Host "? Server is not responding!" -ForegroundColor Red
+    Write-Host "? Server health check failed after multiple attempts!" -ForegroundColor Red
     Write-Host ""
-    Write-Host "Please start the AuthServer:" -ForegroundColor Yellow
-    Write-Host "  dotnet run" -ForegroundColor Gray
+    Write-Host "Troubleshooting:" -ForegroundColor Yellow
+    Write-Host "  1. Verify server is running:" -ForegroundColor Gray
+    Write-Host "     dotnet run" -ForegroundColor Gray
+    Write-Host "  2. Check server logs for errors" -ForegroundColor Gray
+    Write-Host "  3. Verify URL is correct: $AuthServerUrl" -ForegroundColor Gray
+    Write-Host "  4. Try adding startup delay:" -ForegroundColor Gray
+    Write-Host "     .\Scripts\Run-AllTests.ps1 -StartupDelay 5" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "Server output should show:" -ForegroundColor Yellow
+    Write-Host "  Now listening on: https://localhost:5001" -ForegroundColor Gray
+    Write-Host "  Now listening on: http://localhost:5000" -ForegroundColor Gray
+    Write-Host "  Application started. Press Ctrl+C to shut down." -ForegroundColor Gray
     Write-Host ""
     exit 1
+}
+
+# Allow server startup time
+if ($StartupDelay -gt 0) {
+    Write-Host "Waiting $StartupDelay seconds to allow server to start..." -ForegroundColor Yellow
+    Start-Sleep -Seconds $StartupDelay
 }
 
 # Define test suites
