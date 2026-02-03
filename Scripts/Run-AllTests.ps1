@@ -1,0 +1,280 @@
+# AuthServer - Master Test Suite Runner
+# PowerShell 5.1 Compatible
+# Runs all test scripts in sequence and generates comprehensive report
+
+param(
+    [string]$AuthServerUrl = "https://localhost:5001",
+    [switch]$SkipPhase1,
+    [switch]$SkipPhase2,
+    [switch]$SkipLockout,
+    [switch]$SkipRoles,
+    [switch]$SkipProvisioning,
+    [switch]$StopOnError
+)
+
+# Suppress SSL validation warnings
+Add-Type @"
+    using System.Net;
+    using System.Security.Cryptography.X509Certificates;
+    public class TrustAllCertsPolicy : ICertificatePolicy {
+        public bool CheckValidationResult(
+            ServicePoint srvPoint, X509Certificate certificate,
+            WebRequest request, int certificateProblem) {
+            return true;
+        }
+    }
+"@
+[System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+
+# Test results tracking
+$script:TotalTests = 0
+$script:PassedTests = 0
+$script:FailedTests = 0
+$script:SkippedTests = 0
+$script:TestResults = @()
+
+# Helper functions
+function Write-Header {
+    param([string]$Text)
+    Write-Host ""
+    Write-Host "??????????????????????????????????????????????????????????????" -ForegroundColor Cyan
+    Write-Host "?  $($Text.PadRight(58))?" -ForegroundColor Cyan
+    Write-Host "??????????????????????????????????????????????????????????????" -ForegroundColor Cyan
+    Write-Host ""
+}
+
+function Write-TestSuite {
+    param([string]$Name)
+    Write-Host ""
+    Write-Host "???????????????????????????????????????????????????????" -ForegroundColor Yellow
+    Write-Host " TEST SUITE: $Name" -ForegroundColor Yellow
+    Write-Host "???????????????????????????????????????????????????????" -ForegroundColor Yellow
+}
+
+function Add-TestResult {
+    param(
+        [string]$Suite,
+        [string]$Test,
+        [string]$Status,
+        [string]$Message = ""
+    )
+    
+    $script:TestResults += [PSCustomObject]@{
+        Suite = $Suite
+        Test = $Test
+        Status = $Status
+        Message = $Message
+        Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    }
+    
+    $script:TotalTests++
+    
+    switch ($Status) {
+        "PASS" { 
+            $script:PassedTests++
+            Write-Host "  ? $Test" -ForegroundColor Green
+            if ($Message) { Write-Host "    $Message" -ForegroundColor Gray }
+        }
+        "FAIL" { 
+            $script:FailedTests++
+            Write-Host "  ? $Test" -ForegroundColor Red
+            if ($Message) { Write-Host "    $Message" -ForegroundColor Gray }
+        }
+        "SKIP" { 
+            $script:SkippedTests++
+            Write-Host "  ? $Test (SKIPPED)" -ForegroundColor Yellow
+            if ($Message) { Write-Host "    $Message" -ForegroundColor Gray }
+        }
+    }
+}
+
+function Test-ServerHealth {
+    try {
+        $response = Invoke-RestMethod -Uri "$AuthServerUrl/health" -Method Get -TimeoutSec 5
+        if ($response -eq "ok") {
+            return $true
+        }
+        return $false
+    }
+    catch {
+        return $false
+    }
+}
+
+# Start test execution
+$startTime = Get-Date
+
+Write-Header "AuthServer Complete Test Suite"
+
+Write-Host "Configuration:" -ForegroundColor Cyan
+Write-Host "  Server URL: $AuthServerUrl"
+Write-Host "  Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+Write-Host "  PowerShell Version: $($PSVersionTable.PSVersion)"
+Write-Host ""
+
+# Pre-flight check
+Write-Host "Pre-flight check: Verifying server is running..." -ForegroundColor Yellow
+if (Test-ServerHealth) {
+    Write-Host "? Server is running and healthy" -ForegroundColor Green
+}
+else {
+    Write-Host "? Server is not responding!" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Please start the AuthServer:" -ForegroundColor Yellow
+    Write-Host "  dotnet run" -ForegroundColor Gray
+    Write-Host ""
+    exit 1
+}
+
+# Define test suites
+$testSuites = @(
+    @{
+        Name = "Phase 1 - Basic Authentication"
+        Script = "test-phase1-auth.ps1"
+        Skip = $SkipPhase1
+    },
+    @{
+        Name = "Phase 2 - Role-Based Access Control"
+        Script = "test-phase2.ps1"
+        Skip = $SkipPhase2
+    },
+    @{
+        Name = "Lockout Enforcement"
+        Script = "test-lockout-enforcement.ps1"
+        Skip = $SkipLockout
+    },
+    @{
+        Name = "Role Normalization"
+        Script = "test-role-normalization.ps1"
+        Skip = $SkipRoles
+    },
+    @{
+        Name = "User Provisioning API"
+        Script = "test-provisioning-api.ps1"
+        Skip = $SkipProvisioning
+    }
+)
+
+# Run each test suite
+foreach ($suite in $testSuites) {
+    if ($suite.Skip) {
+        Write-TestSuite $suite.Name
+        Write-Host "  ? Test suite skipped by user" -ForegroundColor Yellow
+        continue
+    }
+    
+    $scriptPath = Join-Path $PSScriptRoot $suite.Script
+    
+    if (Test-Path $scriptPath) {
+        Write-TestSuite $suite.Name
+        Write-Host "  Running: $($suite.Script)" -ForegroundColor Gray
+        Write-Host ""
+        
+        try {
+            # Run the test script
+            $result = & $scriptPath
+            
+            # Check exit code
+            if ($LASTEXITCODE -eq 0) {
+                Add-TestResult -Suite $suite.Name -Test "Test Suite" -Status "PASS" -Message "All tests passed"
+            }
+            else {
+                Add-TestResult -Suite $suite.Name -Test "Test Suite" -Status "FAIL" -Message "Some tests failed (exit code: $LASTEXITCODE)"
+                
+                if ($StopOnError) {
+                    Write-Host ""
+                    Write-Host "Stopping test execution due to failure (StopOnError flag)" -ForegroundColor Red
+                    break
+                }
+            }
+        }
+        catch {
+            Add-TestResult -Suite $suite.Name -Test "Test Suite" -Status "FAIL" -Message $_.Exception.Message
+            
+            if ($StopOnError) {
+                Write-Host ""
+                Write-Host "Stopping test execution due to error (StopOnError flag)" -ForegroundColor Red
+                break
+            }
+        }
+    }
+    else {
+        Write-TestSuite $suite.Name
+        Add-TestResult -Suite $suite.Name -Test "Test Suite" -Status "SKIP" -Message "Script not found: $scriptPath"
+    }
+}
+
+# Calculate execution time
+$endTime = Get-Date
+$duration = $endTime - $startTime
+
+# Generate summary report
+Write-Host ""
+Write-Host ""
+Write-Header "Test Execution Summary"
+
+Write-Host "Execution Time: $($duration.ToString('mm\:ss'))" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Test Results:" -ForegroundColor Cyan
+Write-Host "  Total Tests:   $script:TotalTests"
+Write-Host "  Passed:        " -NoNewline
+Write-Host "$script:PassedTests" -ForegroundColor Green
+Write-Host "  Failed:        " -NoNewline
+Write-Host "$script:FailedTests" -ForegroundColor Red
+Write-Host "  Skipped:       " -NoNewline
+Write-Host "$script:SkippedTests" -ForegroundColor Yellow
+Write-Host ""
+
+if ($script:TotalTests -gt 0) {
+    $passRate = [math]::Round(($script:PassedTests / $script:TotalTests) * 100, 2)
+    Write-Host "  Pass Rate:     $passRate%" -ForegroundColor $(if ($passRate -eq 100) { "Green" } elseif ($passRate -ge 80) { "Yellow" } else { "Red" })
+}
+
+Write-Host ""
+Write-Host "Detailed Results:" -ForegroundColor Cyan
+Write-Host ""
+
+# Group by suite
+$groupedResults = $script:TestResults | Group-Object -Property Suite
+
+foreach ($group in $groupedResults) {
+    Write-Host "  $($group.Name):" -ForegroundColor Yellow
+    foreach ($result in $group.Group) {
+        $icon = switch ($result.Status) {
+            "PASS" { "?" }
+            "FAIL" { "?" }
+            "SKIP" { "?" }
+        }
+        $color = switch ($result.Status) {
+            "PASS" { "Green" }
+            "FAIL" { "Red" }
+            "SKIP" { "Yellow" }
+        }
+        Write-Host "    $icon $($result.Test)" -ForegroundColor $color
+        if ($result.Message) {
+            Write-Host "      $($result.Message)" -ForegroundColor Gray
+        }
+    }
+    Write-Host ""
+}
+
+# Save detailed report to file
+$reportPath = Join-Path $PSScriptRoot "test-report-$(Get-Date -Format 'yyyyMMdd-HHmmss').txt"
+$script:TestResults | Format-Table -AutoSize | Out-File -FilePath $reportPath
+Write-Host "Detailed report saved to: $reportPath" -ForegroundColor Gray
+Write-Host ""
+
+# Final status
+if ($script:FailedTests -eq 0) {
+    Write-Host "??????????????????????????????????????????????????????????????" -ForegroundColor Green
+    Write-Host "?              ? ALL TESTS PASSED!                           ?" -ForegroundColor Green
+    Write-Host "??????????????????????????????????????????????????????????????" -ForegroundColor Green
+    exit 0
+}
+else {
+    Write-Host "??????????????????????????????????????????????????????????????" -ForegroundColor Red
+    Write-Host "?              ? SOME TESTS FAILED                           ?" -ForegroundColor Red
+    Write-Host "??????????????????????????????????????????????????????????????" -ForegroundColor Red
+    exit 1
+}
