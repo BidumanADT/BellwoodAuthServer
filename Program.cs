@@ -289,6 +289,7 @@ app.MapControllers();
 app.MapPost("/login", 
     async (
     UserManager<IdentityUser> um,
+    SignInManager<IdentityUser> sm,
     RefreshTokenStore store,
     LoginRequest? req) =>
 {
@@ -304,9 +305,26 @@ app.MapPost("/login",
     }
 
     var user = await um.FindByNameAsync(req.Username);
-    if (user is null || !(await um.CheckPasswordAsync(user, req.Password)))
+    if (user is null)
     {
         // don't leak whether the user exists
+        return Results.Unauthorized();
+    }
+
+    // Check password and lockout status
+    var signInResult = await sm.CheckPasswordSignInAsync(user, req.Password, lockoutOnFailure: false);
+    
+    if (signInResult.IsLockedOut)
+    {
+        return Results.Problem(
+            detail: "User account is disabled.",
+            statusCode: 403,
+            title: "Account Disabled");
+    }
+
+    if (!signInResult.Succeeded)
+    {
+        // Password wrong or other issue
         return Results.Unauthorized();
     }
 
@@ -369,6 +387,7 @@ app.MapPost("/login",
 app.MapPost("/api/auth/login", 
     async (
     UserManager<IdentityUser> um,
+    SignInManager<IdentityUser> sm,
     RefreshTokenStore store,
     LoginRequest? req) =>
 {
@@ -384,7 +403,23 @@ app.MapPost("/api/auth/login",
     }
 
     var user = await um.FindByNameAsync(req.Username);
-    if (user is null || !(await um.CheckPasswordAsync(user, req.Password)))
+    if (user is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    // Check password and lockout status
+    var signInResult = await sm.CheckPasswordSignInAsync(user, req.Password, lockoutOnFailure: false);
+    
+    if (signInResult.IsLockedOut)
+    {
+        return Results.Problem(
+            detail: "User account is disabled.",
+            statusCode: 403,
+            title: "Account Disabled");
+    }
+
+    if (!signInResult.Succeeded)
     {
         return Results.Unauthorized();
     }

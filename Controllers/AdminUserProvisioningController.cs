@@ -7,7 +7,7 @@ using BellwoodAuthServer.Models;
 namespace BellwoodAuthServer.Controllers;
 
 [ApiController]
-[Route("admin/users")]
+[Route("api/admin/provisioning")]
 [Authorize(Policy = "AdminOnly")]
 public class AdminUserProvisioningController : ControllerBase
 {
@@ -169,12 +169,41 @@ public class AdminUserProvisioningController : ControllerBase
         return Ok(await BuildSummaryAsync(user));
     }
 
+    /// <summary>
+    /// Re-enables a disabled user account.
+    /// </summary>
+    [HttpPut("{userId}/enable")]
+    public async Task<ActionResult<UserSummaryDto>> EnableUser(string userId)
+    {
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user == null)
+        {
+            return NotFound(new { error = "User not found." });
+        }
+
+        // Remove lockout
+        user.LockoutEnabled = false;
+        user.LockoutEnd = null;
+
+        var updateResult = await _userManager.UpdateAsync(user);
+        if (!updateResult.Succeeded)
+        {
+            return BadRequest(new 
+            { 
+                error = "Failed to enable user.", 
+                details = updateResult.Errors.Select(e => e.Description) 
+            });
+        }
+
+        return Ok(await BuildSummaryAsync(user));
+    }
+
     private static List<string> NormalizeRoles(IEnumerable<string>? roles)
     {
         return roles
             ?.Where(role => !string.IsNullOrWhiteSpace(role))
-            .Select(role => role.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(role => role.Trim().ToLowerInvariant())
+            .Distinct()
             .ToList() ?? new List<string>();
     }
 
@@ -182,9 +211,13 @@ public class AdminUserProvisioningController : ControllerBase
     {
         foreach (var role in roles)
         {
-            if (!await _roleManager.RoleExistsAsync(role))
+            // Roles are already normalized to lowercase by NormalizeRoles
+            // But double-check for safety
+            var normalizedRole = role.ToLowerInvariant();
+            
+            if (!await _roleManager.RoleExistsAsync(normalizedRole))
             {
-                await _roleManager.CreateAsync(new IdentityRole(role));
+                await _roleManager.CreateAsync(new IdentityRole(normalizedRole));
             }
         }
     }
