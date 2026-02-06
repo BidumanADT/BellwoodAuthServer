@@ -632,15 +632,16 @@ app.MapPut("/api/admin/users/{username}/role",
     // Get current roles
     var currentRoles = await um.GetRolesAsync(user);
     
-    // Check if user already has this role
-    if (currentRoles.Contains(requestedRole))
+    // Check if user already has ONLY this role (optimization - skip if already correct)
+    if (currentRoles.Count == 1 && currentRoles.Contains(requestedRole))
     {
         return Results.Ok(new 
         { 
-            message = $"User '{username}' already has role '{requestedRole}'.",
+            message = $"User '{username}' already has role '{requestedRole}' (no change needed).",
             username = user.UserName,
             role = requestedRole,
-            previousRoles = currentRoles
+            previousRoles = currentRoles,
+            newRole = requestedRole
         });
     }
 
