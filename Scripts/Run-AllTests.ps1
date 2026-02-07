@@ -15,7 +15,9 @@ param(
 )
 
 # Suppress SSL validation warnings
-Add-Type @"
+# Check if type already exists before adding (prevents errors when called from master test runner)
+if (-not ([System.Management.Automation.PSTypeName]'TrustAllCertsPolicy').Type) {
+    Add-Type @"
     using System.Net;
     using System.Security.Cryptography.X509Certificates;
     public class TrustAllCertsPolicy : ICertificatePolicy {
@@ -26,6 +28,7 @@ Add-Type @"
         }
     }
 "@
+}
 [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls11 -bor [System.Net.SecurityProtocolType]::Tls
 
@@ -234,6 +237,72 @@ if (-not (Initialize-ServerConnection -Url $AuthServerUrl)) {
     Write-Host "  3. Verify URL is correct: $AuthServerUrl" -ForegroundColor Gray
     Write-Host ""
     exit 1
+}
+
+# Clean up test data from previous runs
+Write-Host ""
+Write-Host "Cleaning up test data from previous runs..." -ForegroundColor Yellow
+try {
+    # Get admin token for cleanup
+    $body = @{
+        username = "alice"
+        password = "password"
+    } | ConvertTo-Json
+
+    $response = Invoke-RestMethod -Uri "$AuthServerUrl/login" `
+        -Method Post `
+        -ContentType "application/json" `
+        -Body $body
+
+    $cleanupToken = $response.token
+    
+    $headers = @{
+        Authorization = "Bearer $cleanupToken"
+    }
+    
+    # Test users created by test scripts
+    $testEmails = @(
+        "lockouttest@example.com"
+        "roletest1@example.com"
+        "roletest2@example.com"
+        "roletest3@example.com"
+        "roletest4@example.com"
+        "provisiontest@example.com"
+    )
+    
+    # Get all users
+    $allUsers = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users?take=100" `
+        -Method Get `
+        -Headers $headers
+    
+    $cleaned = 0
+    foreach ($email in $testEmails) {
+        $user = $allUsers | Where-Object { $_.email -eq $email }
+        if ($user) {
+            # Enable the user (disabled users can't be cleaned up properly)
+            try {
+                Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users/$($user.userId)/enable" `
+                    -Method Put `
+                    -Headers $headers | Out-Null
+                Write-Host "  ? Enabled test user: $email" -ForegroundColor Gray
+                $cleaned++
+            }
+            catch {
+                Write-Host "  ? Could not enable $email : $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
+    }
+    
+    if ($cleaned -gt 0) {
+        Write-Host "? Cleaned up $cleaned test user(s)" -ForegroundColor Green
+    }
+    else {
+        Write-Host "? No test users needed cleanup" -ForegroundColor Green
+    }
+}
+catch {
+    Write-Host "? Could not clean up test data: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Host "  Tests will attempt to reuse existing data" -ForegroundColor Gray
 }
 
 # Optional startup delay

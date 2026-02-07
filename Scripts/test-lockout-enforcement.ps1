@@ -10,8 +10,9 @@ $AdminPass = "password"
 $TestEmail = "lockouttest@example.com"
 $TestPassword = "Test123!"
 
-# Suppress SSL warnings
-Add-Type @"
+# Suppress SSL warnings - check if type already exists first
+if (-not ([System.Management.Automation.PSTypeName]'TrustAllCertsPolicy').Type) {
+    Add-Type @"
     using System.Net;
     using System.Security.Cryptography.X509Certificates;
     public class TrustAllCertsPolicy : ICertificatePolicy {
@@ -22,6 +23,7 @@ Add-Type @"
         }
     }
 "@
+}
 [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls11 -bor [System.Net.SecurityProtocolType]::Tls
 
@@ -63,7 +65,7 @@ try {
     
     # First, try to delete the user if it exists (cleanup from previous run)
     try {
-        $existingUsers = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning?take=100" `
+        $existingUsers = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users?take=100" `
             -Method Get `
             -Headers $headers
         
@@ -76,7 +78,7 @@ try {
             
             # Make sure user is enabled for testing
             try {
-                Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning/$script:TestUserId/enable" `
+                Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users/$script:TestUserId/enable" `
                     -Method Put `
                     -Headers $headers | Out-Null
             }
@@ -95,7 +97,7 @@ try {
             roles = @("booker")
         } | ConvertTo-Json
 
-        $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning" `
+        $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users" `
             -Method Post `
             -Headers $headers `
             -ContentType "application/json" `
@@ -137,7 +139,7 @@ if ($script:TestUserId) {
             Authorization = "Bearer $script:AdminToken"
         }
 
-        $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning/$script:TestUserId/disable" `
+        $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users/$script:TestUserId/disable" `
             -Method Put `
             -Headers $headers
 
@@ -214,7 +216,7 @@ if ($script:TestUserId) {
             }
 
             # Use WebRequest instead of RestMethod to avoid connection pooling issues
-            $request = [System.Net.HttpWebRequest]::Create("$AuthServerUrl/api/admin/provisioning/$script:TestUserId/enable")
+            $request = [System.Net.HttpWebRequest]::Create("$AuthServerUrl/api/admin/users/$script:TestUserId/enable")
             $request.Method = "PUT"
             $request.Headers.Add("Authorization", "Bearer $script:AdminToken")
             $request.KeepAlive = $false  # Don't reuse connection

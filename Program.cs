@@ -597,7 +597,9 @@ app.MapGet("/dev/user-info/{username}",
     });
 }).AllowAnonymous();
 
-// PHASE 2: Role assignment endpoint (admin-only)
+// PHASE 2: Role assignment endpoint (admin-only) - DEPRECATED
+// This endpoint is maintained for backward compatibility only
+// Use PUT /api/admin/users/{userId}/roles instead (controller-based)
 app.MapPut("/api/admin/users/{username}/role",
     async (
         string username,
@@ -641,7 +643,8 @@ app.MapPut("/api/admin/users/{username}/role",
             username = user.UserName,
             role = requestedRole,
             previousRoles = currentRoles,
-            newRole = requestedRole
+            newRole = requestedRole,
+            deprecated = "Use PUT /api/admin/users/{userId}/roles instead"
         });
     }
 
@@ -671,7 +674,8 @@ app.MapPut("/api/admin/users/{username}/role",
         message = $"Successfully assigned role '{requestedRole}' to user '{username}'.",
         username = user.UserName,
         previousRoles = currentRoles,
-        newRole = requestedRole
+        newRole = requestedRole,
+        deprecated = "Use PUT /api/admin/users/{userId}/roles instead"
     });
 })
 .RequireAuthorization("AdminOnly");

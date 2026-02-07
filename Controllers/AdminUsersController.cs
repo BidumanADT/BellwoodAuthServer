@@ -10,8 +10,8 @@ namespace BellwoodAuthServer.Controllers;
 /// PHASE 2: Protected with AdminOnly authorization policy.
 /// </summary>
 [ApiController]
-[Route("api/admin/users")]
-[Authorize(Policy = "AdminOnly")] // PHASE 2: Require admin role for all endpoints
+[Route("api/admin/drivers")]  // Changed from api/admin/users to avoid conflict
+[Authorize(Policy = "AdminOnly")]
 public class AdminUsersController : ControllerBase
 {
     private readonly UserManager<IdentityUser> _userManager;
@@ -27,7 +27,7 @@ public class AdminUsersController : ControllerBase
     /// Creates a new driver user with the specified uid claim.
     /// The uid should match the UserUid set on the Driver record in AdminAPI.
     /// </summary>
-    [HttpPost("drivers")]
+    [HttpPost]  // Changed from [HttpPost("drivers")] since route is now api/admin/drivers
     public async Task<IActionResult> CreateDriverUser([FromBody] CreateDriverUserRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Username))
@@ -133,7 +133,7 @@ public class AdminUsersController : ControllerBase
     /// <summary>
     /// Gets all users with the driver role.
     /// </summary>
-    [HttpGet("drivers")]
+    [HttpGet]  // Changed from [HttpGet("drivers")] since route is now api/admin/drivers
     public async Task<IActionResult> GetDriverUsers()
     {
         var driversInRole = await _userManager.GetUsersInRoleAsync("driver");
@@ -151,69 +151,6 @@ public class AdminUsersController : ControllerBase
                 UserUid = uidClaim?.Value
             });
         }
-
-        return Ok(result);
-    }
-
-    /// <summary>
-    /// Gets all users in the system with their roles and details.
-    /// PHASE 2: Admin-only endpoint for user management interface.
-    /// </summary>
-    /// <param name="role">Optional: Filter by role (admin, dispatcher, booker, driver)</param>
-    /// <param name="includeInactive">Optional: Include inactive/disabled users (default: false)</param>
-    [HttpGet]
-    public async Task<IActionResult> GetAllUsers(
-        [FromQuery] string? role = null,
-        [FromQuery] bool includeInactive = false)
-    {
-        // Get all users
-        var allUsers = _userManager.Users.ToList();
-        var result = new List<UserInfo>();
-
-        foreach (var user in allUsers)
-        {
-            // Skip inactive users unless explicitly requested
-            if (!includeInactive && user.LockoutEnabled && user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTimeOffset.UtcNow)
-            {
-                continue;
-            }
-
-            var roles = await _userManager.GetRolesAsync(user);
-            var claims = await _userManager.GetClaimsAsync(user);
-            var emailClaim = claims.FirstOrDefault(c => c.Type == "email");
-
-            // Get primary role (mutually exclusive strategy means users have one role)
-            var userRole = roles.FirstOrDefault() ?? "none";
-
-            // Apply role filter if specified
-            if (!string.IsNullOrWhiteSpace(role) && !userRole.Equals(role, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            // Determine if user is active
-            var isActive = !user.LockoutEnabled || 
-                          !user.LockoutEnd.HasValue || 
-                          user.LockoutEnd.Value <= DateTimeOffset.UtcNow;
-
-            // Get last login from security stamp (approximate - ASP.NET Identity doesn't track this by default)
-            // For now, we'll use a placeholder. In production, you'd need to implement login tracking.
-            DateTime? lastLogin = null;
-
-            result.Add(new UserInfo
-            {
-                Username = user.UserName!,
-                UserId = user.Id,
-                Email = emailClaim?.Value ?? user.Email ?? "",
-                Role = userRole,
-                IsActive = isActive,
-                CreatedAt = DateTime.UtcNow, // Placeholder - ASP.NET Identity doesn't store creation date by default
-                LastLogin = lastLogin
-            });
-        }
-
-        // Sort by username for consistent ordering
-        result = result.OrderBy(u => u.Username).ToList();
 
         return Ok(result);
     }
@@ -248,7 +185,7 @@ public class AdminUsersController : ControllerBase
     /// <summary>
     /// Deletes a driver user by username.
     /// </summary>
-    [HttpDelete("drivers/{username}")]
+    [HttpDelete("{username}")]  // Changed from [HttpDelete("drivers/{username}")] since route is now api/admin/drivers
     public async Task<IActionResult> DeleteDriverUser(string username)
     {
         var user = await _userManager.FindByNameAsync(username);
@@ -297,49 +234,4 @@ public class DriverUserInfo
     public string UserId { get; set; } = "";
     public string Username { get; set; } = "";
     public string? UserUid { get; set; }
-}
-
-/// <summary>
-/// User information for admin user management interface.
-/// PHASE 2: Used by GET /api/admin/users endpoint.
-/// </summary>
-public class UserInfo
-{
-    /// <summary>
-    /// Username used for login.
-    /// </summary>
-    public string Username { get; set; } = "";
-
-    /// <summary>
-    /// Unique user identifier (Identity GUID).
-    /// </summary>
-    public string UserId { get; set; } = "";
-
-    /// <summary>
-    /// User's email address.
-    /// </summary>
-    public string Email { get; set; } = "";
-
-    /// <summary>
-    /// User's primary role (mutually exclusive strategy).
-    /// </summary>
-    public string Role { get; set; } = "";
-
-    /// <summary>
-    /// Whether the user account is currently active.
-    /// </summary>
-    public bool IsActive { get; set; } = true;
-
-    /// <summary>
-    /// When the user account was created.
-    /// Note: ASP.NET Identity doesn't track this by default - placeholder value used.
-    /// </summary>
-    public DateTime CreatedAt { get; set; }
-
-    /// <summary>
-    /// Last login timestamp.
-    /// Note: ASP.NET Identity doesn't track this by default - returns null.
-    /// Implement login tracking middleware for accurate values.
-    /// </summary>
-    public DateTime? LastLogin { get; set; }
 }

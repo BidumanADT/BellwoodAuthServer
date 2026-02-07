@@ -63,7 +63,9 @@ function Decode-JwtPayload {
 }
 
 # Suppress SSL validation warnings for localhost testing
-Add-Type @"
+# Check if type already exists before adding (prevents errors when called from master test runner)
+if (-not ([System.Management.Automation.PSTypeName]'TrustAllCertsPolicy').Type) {
+    Add-Type @"
     using System.Net;
     using System.Security.Cryptography.X509Certificates;
     public class TrustAllCertsPolicy : ICertificatePolicy {
@@ -74,12 +76,13 @@ Add-Type @"
         }
     }
 "@
+}
 [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls11 -bor [System.Net.SecurityProtocolType]::Tls
 
-Write-Host "??????????????????????????????????????????????????????????????" -ForegroundColor Cyan
+Write-Host "????????????????????????????????????????????????????????????" -ForegroundColor Cyan
 Write-Host "?         AuthServer Phase 2 - Functional Tests             ?" -ForegroundColor Cyan
-Write-Host "??????????????????????????????????????????????????????????????" -ForegroundColor Cyan
+Write-Host "????????????????????????????????????????????????????????????" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Server: $AuthServerUrl"
 Write-Host "Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
@@ -156,7 +159,7 @@ try {
         Authorization = "Bearer $script:DispatcherToken"
     }
     
-    $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users/drivers" `
+    $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/drivers" `
         -Method Get `
         -Headers $headers
     
@@ -194,7 +197,7 @@ for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
         # Reset connection by using WebRequest instead of RestMethod on first attempt
         if ($attempt -eq 1) {
             try {
-                $request = [System.Net.HttpWebRequest]::Create("$AuthServerUrl/api/admin/users/drivers")
+                $request = [System.Net.HttpWebRequest]::Create("$AuthServerUrl/api/admin/drivers")
                 $request.Method = "GET"
                 $request.Headers.Add("Authorization", "Bearer $script:AdminToken")
                 $request.KeepAlive = $false  # Don't reuse connection
@@ -220,7 +223,7 @@ for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
         }
         
         # Use RestMethod (simpler, may work after WebRequest clears connection)
-        $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users/drivers" `
+        $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/drivers" `
             -Method Get `
             -Headers $headers `
             -TimeoutSec 30
@@ -325,7 +328,7 @@ try {
         Authorization = "Bearer $script:BobToken"
     }
     
-    $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users/drivers" `
+    $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/drivers" `
         -Method Get `
         -Headers $headers
     
@@ -511,3 +514,4 @@ else {
     Write-Host "??????????????????????????????????????????????????????????????" -ForegroundColor Red
     exit 1
 }
+

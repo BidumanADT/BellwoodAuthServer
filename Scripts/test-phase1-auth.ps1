@@ -1,13 +1,13 @@
-# AuthServer Phase 1 - Basic Authentication Tests
+# Phase 1 - Basic Authentication Tests
 # PowerShell 5.1 Compatible
-# Tests fundamental authentication functionality
 
 param(
     [string]$AuthServerUrl = "https://localhost:5001"
 )
 
-# Suppress SSL warnings
-Add-Type @"
+# Suppress SSL warnings - check if type already exists first
+if (-not ([System.Management.Automation.PSTypeName]'TrustAllCertsPolicy').Type) {
+    Add-Type @"
     using System.Net;
     using System.Security.Cryptography.X509Certificates;
     public class TrustAllCertsPolicy : ICertificatePolicy {
@@ -18,6 +18,7 @@ Add-Type @"
         }
     }
 "@
+}
 [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 
