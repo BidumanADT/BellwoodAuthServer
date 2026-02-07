@@ -6,8 +6,9 @@ param(
     [string]$AuthServerUrl = "https://localhost:5001"
 )
 
-# Suppress SSL warnings
-Add-Type @"
+# Suppress SSL warnings - check if type already exists first
+if (-not ([System.Management.Automation.PSTypeName]'TrustAllCertsPolicy').Type) {
+    Add-Type @"
     using System.Net;
     using System.Security.Cryptography.X509Certificates;
     public class TrustAllCertsPolicy : ICertificatePolicy {
@@ -18,6 +19,7 @@ Add-Type @"
         }
     }
 "@
+}
 [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls11 -bor [System.Net.SecurityProtocolType]::Tls
 
@@ -60,14 +62,14 @@ catch {
     exit 1
 }
 
-# Test 1: List Users (GET /api/admin/provisioning)
-Write-Host "`nTest 1: List Users"
+# Test 1: List Users
+Write-Host "`nTest 1: List Users" -ForegroundColor Yellow
 try {
     $headers = @{
         Authorization = "Bearer $script:AdminToken"
     }
     
-    $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning" `
+    $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users?take=50&skip=0" `
         -Method Get `
         -Headers $headers
 
@@ -75,7 +77,7 @@ try {
         Test-Pass "User list retrieved successfully ($($response.Count) users)"
     }
     else {
-        Test-Fail "Unexpected response format"
+        Test-Fail "Expected array, got: $($response.GetType().Name)"
     }
 }
 catch {
@@ -95,7 +97,7 @@ try {
         roles = @("booker")
     } | ConvertTo-Json
 
-    $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning" `
+    $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users" `
         -Method Post `
         -Headers $headers `
         -ContentType "application/json" `
@@ -114,7 +116,7 @@ catch {
     if ($statusCode -eq 409) {
         # User exists - fetch and enable it
         try {
-            $allUsers = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning?take=100" `
+            $allUsers = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users?take=100" `
                 -Method Get `
                 -Headers $headers
             
@@ -125,7 +127,7 @@ catch {
                 # Enable user if disabled
                 if ($existingUser.isDisabled) {
                     try {
-                        Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning/$script:TestUserId/enable" `
+                        Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users/$script:TestUserId/enable" `
                             -Method Put `
                             -Headers $headers | Out-Null
                     }
@@ -183,7 +185,7 @@ if ($script:TestUserId) {
             roles = @("driver")
         } | ConvertTo-Json
 
-        $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning/$script:TestUserId/roles" `
+        $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users/$script:TestUserId/roles" `
             -Method Put `
             -Headers $headers `
             -ContentType "application/json" `
@@ -212,7 +214,7 @@ if ($script:TestUserId) {
             Authorization = "Bearer $script:AdminToken"
         }
 
-        $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning/$script:TestUserId/disable" `
+        $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users/$script:TestUserId/disable" `
             -Method Put `
             -Headers $headers
 
@@ -274,7 +276,7 @@ if ($script:TestUserId) {
             }
 
             # Use WebRequest instead of RestMethod to avoid connection pooling issues
-            $request = [System.Net.HttpWebRequest]::Create("$AuthServerUrl/api/admin/provisioning/$script:TestUserId/enable")
+            $request = [System.Net.HttpWebRequest]::Create("$AuthServerUrl/api/admin/users/$script:TestUserId/enable")
             $request.Method = "PUT"
             $request.Headers.Add("Authorization", "Bearer $script:AdminToken")
             $request.KeepAlive = $false  # Don't reuse connection
@@ -357,7 +359,7 @@ try {
         roles = @("booker")
     } | ConvertTo-Json
 
-    $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning" `
+    $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users" `
         -Method Post `
         -Headers $headers `
         -ContentType "application/json" `
@@ -382,7 +384,7 @@ try {
         Authorization = "Bearer $script:AdminToken"
     }
     
-    $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/provisioning?take=2&skip=0" `
+    $response = Invoke-RestMethod -Uri "$AuthServerUrl/api/admin/users?take=2&skip=0" `
         -Method Get `
         -Headers $headers
 

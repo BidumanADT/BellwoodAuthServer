@@ -7,7 +7,8 @@ using BellwoodAuthServer.Models;
 namespace BellwoodAuthServer.Controllers;
 
 [ApiController]
-[Route("api/admin/provisioning")]
+[Route("api/admin/users")]  // Primary route - standardized
+[Route("api/admin/provisioning")]  // Legacy route - backward compatibility
 [Authorize(Policy = "AdminOnly")]
 public class AdminUserProvisioningController : ControllerBase
 {
@@ -85,7 +86,8 @@ public class AdminUserProvisioningController : ControllerBase
         var user = new IdentityUser
         {
             UserName = request.Email,
-            Email = request.Email
+            Email = request.Email,
+            EmailConfirmed = true  // Auto-confirm for admin-created users
         };
 
         var createResult = await _userManager.CreateAsync(user, request.TempPassword);
@@ -211,8 +213,7 @@ public class AdminUserProvisioningController : ControllerBase
     {
         foreach (var role in roles)
         {
-            // Roles are already normalized to lowercase by NormalizeRoles
-            // But double-check for safety
+            // Normalize role to lowercase
             var normalizedRole = role.ToLowerInvariant();
             
             if (!await _roleManager.RoleExistsAsync(normalizedRole))
@@ -233,7 +234,7 @@ public class AdminUserProvisioningController : ControllerBase
             Email = user.Email ?? string.Empty,
             FirstName = null,
             LastName = null,
-            Roles = roles.Select(r => r.ToLowerInvariant()).ToList(), // Normalize roles in response
+            Roles = roles.Select(r => r.ToLowerInvariant()).ToList(), // Always return normalized roles
             IsDisabled = isDisabled,
             CreatedAtUtc = null,
             ModifiedAtUtc = null
