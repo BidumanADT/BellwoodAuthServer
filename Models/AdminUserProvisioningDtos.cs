@@ -17,6 +17,7 @@ public class UpdateRolesRequest
 public class UserSummaryDto
 {
     public string UserId { get; set; } = string.Empty;
+    public string Username { get; set; } = string.Empty;  // Added - AdminPortal expects this
     public string Email { get; set; } = string.Empty;
     public string? FirstName { get; set; }
     public string? LastName { get; set; }
