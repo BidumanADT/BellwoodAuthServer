@@ -231,6 +231,7 @@ public class AdminUserProvisioningController : ControllerBase
         return new UserSummaryDto
         {
             UserId = user.Id,
+            Username = user.UserName ?? string.Empty,  // Added - AdminPortal needs this
             Email = user.Email ?? string.Empty,
             FirstName = null,
             LastName = null,
