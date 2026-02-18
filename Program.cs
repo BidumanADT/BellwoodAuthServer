@@ -6,8 +6,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using BellwoodAuthServer.Data;
 using BellwoodAuthServer.Services;
+using BellwoodAuthServer.Options;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection("Email"));
 
 // Bind to the ports
 builder.WebHost.UseUrls("https://localhost:5001", "http://localhost:5000");
