@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using BellwoodAuthServer.Models;
+using BellwoodAuthServer.Services;
 
 namespace BellwoodAuthServer.Controllers;
 
@@ -16,11 +17,13 @@ public class AdminUserProvisioningController : ControllerBase
 
     private readonly UserManager<IdentityUser> _userManager;
     private readonly RoleManager<IdentityRole> _roleManager;
+    private readonly AuthAuditService _auditService;
 
-    public AdminUserProvisioningController(UserManager<IdentityUser> userManager, RoleManager<IdentityRole> roleManager)
+    public AdminUserProvisioningController(UserManager<IdentityUser> userManager, RoleManager<IdentityRole> roleManager, AuthAuditService auditService)
     {
         _userManager = userManager;
         _roleManager = roleManager;
+        _auditService = auditService;
     }
 
     [HttpGet]
@@ -107,6 +110,8 @@ public class AdminUserProvisioningController : ControllerBase
             }
         }
 
+        await _auditService.LogEventAsync(HttpContext, user.UserName, "role_assignment", "success");
+
         return Ok(await BuildSummaryAsync(user));
     }
 
@@ -116,6 +121,7 @@ public class AdminUserProvisioningController : ControllerBase
         var user = await _userManager.FindByIdAsync(userId);
         if (user == null)
         {
+            await _auditService.LogEventAsync(HttpContext, userId, "role_assignment", "failure");
             return NotFound(new { error = "User not found." });
         }
 
@@ -143,9 +149,12 @@ public class AdminUserProvisioningController : ControllerBase
             var addResult = await _userManager.AddToRolesAsync(user, normalizedRoles);
             if (!addResult.Succeeded)
             {
+                await _auditService.LogEventAsync(HttpContext, user.UserName, "role_assignment", "failure");
                 return BadRequest(new { error = "Failed to assign roles.", details = addResult.Errors.Select(e => e.Description) });
             }
         }
+
+        await _auditService.LogEventAsync(HttpContext, user.UserName, "role_assignment", "success");
 
         return Ok(await BuildSummaryAsync(user));
     }

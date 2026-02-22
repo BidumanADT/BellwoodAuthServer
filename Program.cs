@@ -7,8 +7,20 @@ using Microsoft.IdentityModel.Tokens;
 using BellwoodAuthServer.Data;
 using BellwoodAuthServer.Services;
 using BellwoodAuthServer.Options;
+using BellwoodAuthServer.Middleware;
+using Serilog;
+using Serilog.Context;
 
 var builder = WebApplication.CreateBuilder(args);
+
+Log.Logger = new LoggerConfiguration()
+    .Enrich.FromLogContext()
+    .Enrich.WithProperty("service", "AuthServer")
+    .Enrich.WithProperty("environment", "Alpha")
+    .WriteTo.Console()
+    .CreateLogger();
+
+builder.Host.UseSerilog();
 
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection("Email"));
 
@@ -78,6 +90,11 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton<RefreshTokenStore>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<AuthAuditService>();
+builder.Services.AddTransient<CorrelationHeaderHandler>();
+builder.Services.AddSingleton(new SigningKeyState { IsLoaded = key.Key?.Length > 0 });
+builder.Services.AddHttpClient("default").AddHttpMessageHandler<CorrelationHeaderHandler>();
 
 var app = builder.Build();
 
@@ -280,6 +297,9 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Pipeline
+app.UseSerilogRequestLogging();
+app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseHttpsRedirection();
 app.UseSwagger();
 app.UseSwaggerUI();
@@ -294,6 +314,8 @@ app.MapPost("/login",
     UserManager<IdentityUser> um,
     SignInManager<IdentityUser> sm,
     RefreshTokenStore store,
+    AuthAuditService auditService,
+    HttpContext httpContext,
     LoginRequest? req) =>
 {
     if (req is null)
@@ -311,6 +333,7 @@ app.MapPost("/login",
     if (user is null)
     {
         // don't leak whether the user exists
+        await auditService.LogEventAsync(httpContext, req.Username, "login", "failure");
         return Results.Unauthorized();
     }
 
@@ -328,6 +351,7 @@ app.MapPost("/login",
     if (!signInResult.Succeeded)
     {
         // Password wrong or other issue
+        await auditService.LogEventAsync(httpContext, req.Username, "login", "failure");
         return Results.Unauthorized();
     }
 
@@ -368,6 +392,9 @@ app.MapPost("/login",
         claims.Add(customUid);
         // Note: userId claim is NOT overridden - it always contains Identity GUID
     }
+
+    await auditService.LogEventAsync(httpContext, user.UserName, "login", "success");
+
 
     var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
         claims: claims,
@@ -392,6 +419,8 @@ app.MapPost("/api/auth/login",
     UserManager<IdentityUser> um,
     SignInManager<IdentityUser> sm,
     RefreshTokenStore store,
+    AuthAuditService auditService,
+    HttpContext httpContext,
     LoginRequest? req) =>
 {
     if (req is null)
@@ -408,6 +437,7 @@ app.MapPost("/api/auth/login",
     var user = await um.FindByNameAsync(req.Username);
     if (user is null)
     {
+        await auditService.LogEventAsync(httpContext, req.Username, "login", "failure");
         return Results.Unauthorized();
     }
 
@@ -424,6 +454,7 @@ app.MapPost("/api/auth/login",
 
     if (!signInResult.Succeeded)
     {
+        await auditService.LogEventAsync(httpContext, req.Username, "login", "failure");
         return Results.Unauthorized();
     }
 
@@ -464,6 +495,8 @@ app.MapPost("/api/auth/login",
         claims.Add(customUid);
         // Note: userId claim is NOT overridden - it always contains Identity GUID
     }
+
+    await auditService.LogEventAsync(httpContext, user.UserName, "login", "success");
 
     var token = new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(
         claims: claims,
@@ -539,6 +572,7 @@ app.MapGet("/dev/user-info/{username}",
     var user = await um.FindByNameAsync(username);
     if (user is null)
     {
+        await auditService.LogEventAsync(httpContext, username, "role_assignment", "failure");
         return Results.NotFound(new { error = $"User '{username}' not found." });
     }
 
@@ -608,7 +642,9 @@ app.MapPut("/api/admin/users/{username}/role",
         string username,
         RoleAssignmentRequest? request,
         UserManager<IdentityUser> um,
-        RoleManager<IdentityRole> rm) =>
+        RoleManager<IdentityRole> rm,
+        AuthAuditService auditService,
+        HttpContext httpContext) =>
 {
     if (request is null || string.IsNullOrWhiteSpace(request.Role))
     {
@@ -631,6 +667,7 @@ app.MapPut("/api/admin/users/{username}/role",
     var user = await um.FindByNameAsync(username);
     if (user is null)
     {
+        await auditService.LogEventAsync(httpContext, username, "role_assignment", "failure");
         return Results.NotFound(new { error = $"User '{username}' not found." });
     }
 
@@ -667,10 +704,13 @@ app.MapPut("/api/admin/users/{username}/role",
     var addResult = await um.AddToRoleAsync(user, requestedRole);
     if (!addResult.Succeeded)
     {
+        await auditService.LogEventAsync(httpContext, user.UserName, "role_assignment", "failure");
         return Results.Problem(
             detail: string.Join(", ", addResult.Errors.Select(e => e.Description)),
             title: "Failed to assign new role");
     }
+
+    await auditService.LogEventAsync(httpContext, user.UserName, "role_assignment", "success");
 
     return Results.Ok(new
     {
@@ -684,8 +724,29 @@ app.MapPut("/api/admin/users/{username}/role",
 .RequireAuthorization("AdminOnly");
 
 // Health endpoints (anonymous)
-app.MapGet("/health", () => Results.Ok("ok")).AllowAnonymous();
-app.MapGet("/healthz", () => Results.Ok("ok")).AllowAnonymous();
+app.MapGet("/health/live", (HttpContext context) =>
+{
+    return Results.Ok(new { status = "live", correlationId = context.Items[CorrelationIdMiddleware.CorrelationItemKey]?.ToString() });
+}).AllowAnonymous();
+
+app.MapGet("/health/ready", async (ApplicationDbContext db, SigningKeyState signingKeyState, HttpContext context) =>
+{
+    var dbReady = await db.Database.CanConnectAsync();
+    var keyReady = signingKeyState.IsLoaded;
+
+    if (!dbReady || !keyReady)
+    {
+        return Results.Problem(statusCode: 503, title: "Service not ready", detail: "Database connectivity or signing key readiness failed.");
+    }
+
+    return Results.Ok(new
+    {
+        status = "ready",
+        database = "connected",
+        signingKey = "loaded",
+        correlationId = context.Items[CorrelationIdMiddleware.CorrelationItemKey]?.ToString()
+    });
+}).AllowAnonymous();
 
 app.Run();
 
