@@ -567,8 +567,11 @@ app.MapPost("/dev/seed-drivers",
 
 // Diagnostic endpoint to check user roles and claims
 app.MapGet("/dev/user-info/{username}",
-    async (string username, UserManager<IdentityUser> um) =>
-{
+    async (string username,
+           UserManager<IdentityUser> um,
+           AuthAuditService auditService,
+           HttpContext httpContext) =>
+    {
     var user = await um.FindByNameAsync(username);
     if (user is null)
     {
@@ -730,6 +733,32 @@ app.MapGet("/health/live", (HttpContext context) =>
 }).AllowAnonymous();
 
 app.MapGet("/health/ready", async (ApplicationDbContext db, SigningKeyState signingKeyState, HttpContext context) =>
+{
+    var dbReady = await db.Database.CanConnectAsync();
+    var keyReady = signingKeyState.IsLoaded;
+
+    if (!dbReady || !keyReady)
+    {
+        return Results.Problem(statusCode: 503, title: "Service not ready", detail: "Database connectivity or signing key readiness failed.");
+    }
+
+    return Results.Ok(new
+    {
+        status = "ready",
+        database = "connected",
+        signingKey = "loaded",
+        correlationId = context.Items[CorrelationIdMiddleware.CorrelationItemKey]?.ToString()
+    });
+}).AllowAnonymous();
+
+// Backward-compatible aliases — kept for Alpha test scripts and docs
+// TODO(beta-cleanup): remove once all scripts/docs reference /health/live and /health/ready
+app.MapGet("/health", (HttpContext context) =>
+{
+    return Results.Ok(new { status = "live", correlationId = context.Items[CorrelationIdMiddleware.CorrelationItemKey]?.ToString() });
+}).AllowAnonymous();
+
+app.MapGet("/healthz", async (ApplicationDbContext db, SigningKeyState signingKeyState, HttpContext context) =>
 {
     var dbReady = await db.Database.CanConnectAsync();
     var keyReady = signingKeyState.IsLoaded;

@@ -1,5 +1,6 @@
 using BellwoodAuthServer.Data;
 using BellwoodAuthServer.Models;
+using BellwoodAuthServer.Middleware;
 
 namespace BellwoodAuthServer.Services;
 
