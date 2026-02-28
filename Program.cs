@@ -98,7 +98,7 @@ builder.Services.AddHttpClient("default").AddHttpMessageHandler<CorrelationHeade
 
 var app = builder.Build();
 
-// Auto-migrate + seed test users
+// Auto-migrate and seed users
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -106,194 +106,215 @@ using (var scope = app.Services.CreateScope())
 
     var um = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
     var rm = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-    
-    // Create roles if they don't exist
-    if (!await rm.RoleExistsAsync("admin"))
+
+    // Create roles if they don't exist (all environments)
+    foreach (var roleName in new[] { "admin", "booker", "driver", "dispatcher" })
     {
-        await rm.CreateAsync(new IdentityRole("admin"));
+        if (!await rm.RoleExistsAsync(roleName))
+            await rm.CreateAsync(new IdentityRole(roleName));
     }
-    if (!await rm.RoleExistsAsync("booker"))
+
+    if (app.Environment.IsDevelopment())
     {
-        await rm.CreateAsync(new IdentityRole("booker"));
-    }
-    if (!await rm.RoleExistsAsync("driver"))
-    {
-        await rm.CreateAsync(new IdentityRole("driver"));
-    }
-    
-    async Task EnsureUser(string user, string pw)
-    {
-        if (await um.FindByNameAsync(user) is null)
-            await um.CreateAsync(new IdentityUser { UserName = user }, pw);
-    }
-    await EnsureUser("alice", "password");
-    await EnsureUser("bob", "password");
-    
-    // Add admin role to alice and bob
-    var alice = await um.FindByNameAsync("alice");
-    if (alice != null)
-    {
-        // Set email if not present
-        if (string.IsNullOrEmpty(alice.Email))
+        // Development only: seed convenience test users (alice, bob, chris, charlie, diana, etc.)
+        async Task EnsureUser(string user, string pw)
         {
-            alice.Email = "alice.admin@bellwood.example";
-            alice.EmailConfirmed = true;
-            await um.UpdateAsync(alice);
+            if (await um.FindByNameAsync(user) is null)
+                await um.CreateAsync(new IdentityUser { UserName = user }, pw);
         }
-        
-        var aliceRoles = await um.GetRolesAsync(alice);
-        if (!aliceRoles.Contains("admin"))
+        await EnsureUser("alice", "password");
+        await EnsureUser("bob", "password");
+
+        // Add admin role to alice and bob
+        var alice = await um.FindByNameAsync("alice");
+        if (alice != null)
         {
-            await um.AddToRoleAsync(alice, "admin");
+            if (string.IsNullOrEmpty(alice.Email))
+            {
+                alice.Email = "alice.admin@bellwood.example";
+                alice.EmailConfirmed = true;
+                await um.UpdateAsync(alice);
+            }
+
+            var aliceRoles = await um.GetRolesAsync(alice);
+            if (!aliceRoles.Contains("admin"))
+                await um.AddToRoleAsync(alice, "admin");
+
+            var aliceClaims = await um.GetClaimsAsync(alice);
+            if (!aliceClaims.Any(c => c.Type == "email"))
+                await um.AddClaimAsync(alice, new Claim("email", alice.Email));
         }
-        
-        // Add email claim if not present
-        var aliceClaims = await um.GetClaimsAsync(alice);
-        if (!aliceClaims.Any(c => c.Type == "email"))
+
+        var bob = await um.FindByNameAsync("bob");
+        if (bob != null)
         {
-            await um.AddClaimAsync(alice, new Claim("email", alice.Email));
+            if (string.IsNullOrEmpty(bob.Email))
+            {
+                bob.Email = "bob.admin@bellwood.example";
+                bob.EmailConfirmed = true;
+                await um.UpdateAsync(bob);
+            }
+
+            var bobRoles = await um.GetRolesAsync(bob);
+            if (!bobRoles.Contains("admin"))
+                await um.AddToRoleAsync(bob, "admin");
+
+            var bobClaims = await um.GetClaimsAsync(bob);
+            if (!bobClaims.Any(c => c.Type == "email"))
+                await um.AddClaimAsync(bob, new Claim("email", bob.Email));
         }
-    }
-    
-    var bob = await um.FindByNameAsync("bob");
-    if (bob != null)
-    {
-        // Set email if not present
-        if (string.IsNullOrEmpty(bob.Email))
+
+        // Create passenger test user with email claim
+        var passengerUser = await um.FindByNameAsync("chris");
+        if (passengerUser is null)
         {
-            bob.Email = "bob.admin@bellwood.example";
-            bob.EmailConfirmed = true;
-            await um.UpdateAsync(bob);
+            passengerUser = new IdentityUser
+            {
+                UserName = "chris",
+                Email = "chris.bailey@example.com",
+                EmailConfirmed = true
+            };
+            await um.CreateAsync(passengerUser, "password");
         }
-        
-        var bobRoles = await um.GetRolesAsync(bob);
-        if (!bobRoles.Contains("admin"))
+        else
         {
-            await um.AddToRoleAsync(bob, "admin");
+            if (passengerUser.Email != "chris.bailey@example.com")
+            {
+                passengerUser.Email = "chris.bailey@example.com";
+                passengerUser.EmailConfirmed = true;
+                await um.UpdateAsync(passengerUser);
+            }
         }
-        
-        // Add email claim if not present
-        var bobClaims = await um.GetClaimsAsync(bob);
-        if (!bobClaims.Any(c => c.Type == "email"))
+
+        var chrisRoles = await um.GetRolesAsync(passengerUser);
+        if (!chrisRoles.Contains("booker"))
+            await um.AddToRoleAsync(passengerUser, "booker");
+
+        var chrisClaims = await um.GetClaimsAsync(passengerUser);
+        var chrisEmailClaim = chrisClaims.FirstOrDefault(c => c.Type == "email");
+        if (chrisEmailClaim == null)
+            await um.AddClaimAsync(passengerUser, new Claim("email", "chris.bailey@example.com"));
+        else if (chrisEmailClaim.Value != "chris.bailey@example.com")
         {
-            await um.AddClaimAsync(bob, new Claim("email", bob.Email));
+            await um.RemoveClaimAsync(passengerUser, chrisEmailClaim);
+            await um.AddClaimAsync(passengerUser, new Claim("email", "chris.bailey@example.com"));
         }
-    }
-    
-    // Create passenger test user with email claim
-    var passengerUser = await um.FindByNameAsync("chris");
-    if (passengerUser is null)
-    {
-        passengerUser = new IdentityUser 
-        { 
-            UserName = "chris",
-            Email = "chris.bailey@example.com",
-            EmailConfirmed = true
-        };
-        await um.CreateAsync(passengerUser, "password");
+
+        // Create driver test user with role and custom uid claim
+        // Note: Using "driver-001" for backward compatibility with existing test data
+        var driverUser = await um.FindByNameAsync("charlie");
+        if (driverUser is null)
+        {
+            driverUser = new IdentityUser { UserName = "charlie" };
+            await um.CreateAsync(driverUser, "password");
+        }
+
+        var charlieRoles = await um.GetRolesAsync(driverUser);
+        if (!charlieRoles.Contains("driver"))
+            await um.AddToRoleAsync(driverUser, "driver");
+
+        var charlieClaims = await um.GetClaimsAsync(driverUser);
+        var charlieUidClaim = charlieClaims.FirstOrDefault(c => c.Type == "uid");
+        if (charlieUidClaim == null)
+            await um.AddClaimAsync(driverUser, new Claim("uid", "driver-001"));
+        else if (charlieUidClaim.Value != "driver-001")
+        {
+            await um.RemoveClaimAsync(driverUser, charlieUidClaim);
+            await um.AddClaimAsync(driverUser, new Claim("uid", "driver-001"));
+        }
+
+        // Create additional test drivers with GUID-based UIDs for scalability testing
+        async Task EnsureDriverUser(string username, string password, string userUid)
+        {
+            var user = await um.FindByNameAsync(username);
+            if (user is null)
+            {
+                user = new IdentityUser { UserName = username };
+                var result = await um.CreateAsync(user, password);
+                if (result.Succeeded)
+                {
+                    await um.AddToRoleAsync(user, "driver");
+                    await um.AddClaimAsync(user, new Claim("uid", userUid));
+                }
+            }
+            else
+            {
+                var roles = await um.GetRolesAsync(user);
+                if (!roles.Contains("driver"))
+                    await um.AddToRoleAsync(user, "driver");
+
+                var claims = await um.GetClaimsAsync(user);
+                var uidClaim = claims.FirstOrDefault(c => c.Type == "uid");
+                if (uidClaim == null)
+                    await um.AddClaimAsync(user, new Claim("uid", userUid));
+            }
+        }
+
+        await EnsureDriverUser("driver_dave", "password", Guid.NewGuid().ToString("N"));
+        await EnsureDriverUser("driver_eve", "password", Guid.NewGuid().ToString("N"));
+
+        // PHASE 2: Seed dispatcher test user (diana)
+        await Phase2RolePreparation.SeedDispatcherRole(rm, um);
     }
     else
     {
-        // Update email if user already exists
-        if (passengerUser.Email != "chris.bailey@example.com")
+        // Non-Development: create a single bootstrap admin if no admin user exists.
+        // Credentials are NEVER hardcoded; they are read from config / environment variables.
+        // Idempotent: if any admin already exists this block is a no-op.
+        var adminUsers = await um.GetUsersInRoleAsync("admin");
+        if (adminUsers.Count == 0)
         {
-            passengerUser.Email = "chris.bailey@example.com";
-            passengerUser.EmailConfirmed = true;
-            await um.UpdateAsync(passengerUser);
-        }
-    }
-    
-    // Ensure Chris has the booker role
-    var chrisRoles = await um.GetRolesAsync(passengerUser);
-    if (!chrisRoles.Contains("booker"))
-    {
-        await um.AddToRoleAsync(passengerUser, "booker");
-    }
-    
-    // Ensure Chris has the email claim
-    var chrisClaims = await um.GetClaimsAsync(passengerUser);
-    var chrisEmailClaim = chrisClaims.FirstOrDefault(c => c.Type == "email");
-    if (chrisEmailClaim == null)
-    {
-        await um.AddClaimAsync(passengerUser, new Claim("email", "chris.bailey@example.com"));
-    }
-    else if (chrisEmailClaim.Value != "chris.bailey@example.com")
-    {
-        await um.RemoveClaimAsync(passengerUser, chrisEmailClaim);
-        await um.AddClaimAsync(passengerUser, new Claim("email", "chris.bailey@example.com"));
-    }
-    
-    // Create driver test user with role and custom uid claim
-    // Note: Using "driver-001" for backward compatibility with existing test data
-    // New drivers should use GUID-based UIDs for scalability
-    var driverUser = await um.FindByNameAsync("charlie");
-    if (driverUser is null)
-    {
-        driverUser = new IdentityUser { UserName = "charlie" };
-        await um.CreateAsync(driverUser, "password");
-    }
-    
-    // Ensure Charlie has the driver role (even if user already existed)
-    var charlieRoles = await um.GetRolesAsync(driverUser);
-    if (!charlieRoles.Contains("driver"))
-    {
-        await um.AddToRoleAsync(driverUser, "driver");
-    }
-    
-    // Ensure Charlie has the uid claim (even if user already existed)
-    var charlieClaims = await um.GetClaimsAsync(driverUser);
-    var charlieUidClaim = charlieClaims.FirstOrDefault(c => c.Type == "uid");
-    if (charlieUidClaim == null)
-    {
-        // Using fixed uid for test user - matches AdminAPI seed data
-        await um.AddClaimAsync(driverUser, new Claim("uid", "driver-001"));
-    }
-    else if (charlieUidClaim.Value != "driver-001")
-    {
-        // Update if wrong value
-        await um.RemoveClaimAsync(driverUser, charlieUidClaim);
-        await um.AddClaimAsync(driverUser, new Claim("uid", "driver-001"));
-    }
-    
-    // Create additional test drivers with GUID-based UIDs for scalability testing
-    async Task EnsureDriverUser(string username, string password, string userUid)
-    {
-        var user = await um.FindByNameAsync(username);
-        if (user is null)
-        {
-            user = new IdentityUser { UserName = username };
-            var result = await um.CreateAsync(user, password);
-            if (result.Succeeded)
+            var bootstrapEmail    = app.Configuration["BootstrapAdmin:Email"];
+            var bootstrapPassword = app.Configuration["BootstrapAdmin:Password"];
+
+            if (string.IsNullOrWhiteSpace(bootstrapEmail) || string.IsNullOrWhiteSpace(bootstrapPassword))
             {
-                await um.AddToRoleAsync(user, "driver");
-                await um.AddClaimAsync(user, new Claim("uid", userUid));
+                Log.Warning("STARTUP: No admin users exist and BootstrapAdmin:Email / BootstrapAdmin:Password " +
+                            "are not configured. The system has no admin user. " +
+                            "Set these via environment variables (BootstrapAdmin__Email, BootstrapAdmin__Password) " +
+                            "or appsettings before starting.");
+            }
+            else
+            {
+                // FindByEmail first; fall back to FindByName in case email was used as username.
+                var existing = await um.FindByEmailAsync(bootstrapEmail)
+                             ?? await um.FindByNameAsync(bootstrapEmail);
+
+                if (existing is null)
+                {
+                    var bootstrapUser = new IdentityUser
+                    {
+                        UserName       = bootstrapEmail,
+                        Email          = bootstrapEmail,
+                        EmailConfirmed = true
+                    };
+                    var result = await um.CreateAsync(bootstrapUser, bootstrapPassword);
+                    if (result.Succeeded)
+                    {
+                        await um.AddToRoleAsync(bootstrapUser, "admin");
+                        await um.AddClaimAsync(bootstrapUser, new Claim("email", bootstrapEmail));
+                        Log.Information("STARTUP: Bootstrap admin created. Login with the configured email.");
+                    }
+                    else
+                    {
+                        Log.Error("STARTUP: Failed to create bootstrap admin: {Errors}",
+                            string.Join(", ", result.Errors.Select(e => e.Description)));
+                    }
+                }
+                else
+                {
+                    // User already exists (e.g. previous startup attempt) — ensure admin role.
+                    if (!await um.IsInRoleAsync(existing, "admin"))
+                        await um.AddToRoleAsync(existing, "admin");
+                    Log.Information("STARTUP: Bootstrap admin already exists. Skipping creation.");
+                }
             }
         }
         else
         {
-            // Ensure existing user has driver role
-            var roles = await um.GetRolesAsync(user);
-            if (!roles.Contains("driver"))
-            {
-                await um.AddToRoleAsync(user, "driver");
-            }
-            
-            // Ensure existing user has uid claim
-            var claims = await um.GetClaimsAsync(user);
-            var uidClaim = claims.FirstOrDefault(c => c.Type == "uid");
-            if (uidClaim == null)
-            {
-                await um.AddClaimAsync(user, new Claim("uid", userUid));
-            }
+            Log.Debug("STARTUP: Bootstrap admin step skipped — admin user(s) already exist.");
         }
     }
-    
-    // Additional test drivers with GUID-based UIDs
-    await EnsureDriverUser("driver_dave", "password", Guid.NewGuid().ToString("N"));
-    await EnsureDriverUser("driver_eve", "password", Guid.NewGuid().ToString("N"));
-    
-    // PHASE 2: Seed dispatcher role and test user
-    await Phase2RolePreparation.SeedDispatcherRole(rm, um);
 }
 
 // Pipeline
@@ -516,126 +537,117 @@ app.MapPost("/api/auth/login",
     });
 }).AllowAnonymous();
 
-// Dev endpoint to seed additional test driver users
-app.MapPost("/dev/seed-drivers",
-    async (UserManager<IdentityUser> um, RoleManager<IdentityRole> rm) =>
+// /dev/* endpoints: Development only — not mapped in Alpha/Beta/Prod
+if (app.Environment.IsDevelopment())
 {
-    // Ensure driver role exists
-    if (!await rm.RoleExistsAsync("driver"))
+    app.MapPost("/dev/seed-drivers",
+        async (UserManager<IdentityUser> um, RoleManager<IdentityRole> rm) =>
     {
-        await rm.CreateAsync(new IdentityRole("driver"));
-    }
-
-    var created = new List<object>();
-
-    // Define test drivers with predetermined GUIDs for consistency with AdminAPI seed data
-    var testDrivers = new[]
-    {
-        new { Username = "charlie", Password = "password", UserUid = "driver-001" },
-        new { Username = "driver_frank", Password = "password", UserUid = Guid.NewGuid().ToString("N") },
-        new { Username = "driver_grace", Password = "password", UserUid = Guid.NewGuid().ToString("N") },
-    };
-
-    foreach (var d in testDrivers)
-    {
-        var existing = await um.FindByNameAsync(d.Username);
-        if (existing is null)
+        // Ensure driver role exists
+        if (!await rm.RoleExistsAsync("driver"))
         {
-            var user = new IdentityUser { UserName = d.Username };
-            var result = await um.CreateAsync(user, d.Password);
-            if (result.Succeeded)
+            await rm.CreateAsync(new IdentityRole("driver"));
+        }
+
+        var created = new List<object>();
+
+        // Define test drivers with predetermined GUIDs for consistency with AdminAPI seed data
+        var testDrivers = new[]
+        {
+            new { Username = "charlie", Password = "password", UserUid = "driver-001" },
+            new { Username = "driver_frank", Password = "password", UserUid = Guid.NewGuid().ToString("N") },
+            new { Username = "driver_grace", Password = "password", UserUid = Guid.NewGuid().ToString("N") },
+        };
+
+        foreach (var d in testDrivers)
+        {
+            var existing = await um.FindByNameAsync(d.Username);
+            if (existing is null)
             {
-                await um.AddToRoleAsync(user, "driver");
-                await um.AddClaimAsync(user, new Claim("uid", d.UserUid));
-                created.Add(new { d.Username, d.UserUid });
+                var user = new IdentityUser { UserName = d.Username };
+                var result = await um.CreateAsync(user, d.Password);
+                if (result.Succeeded)
+                {
+                    await um.AddToRoleAsync(user, "driver");
+                    await um.AddClaimAsync(user, new Claim("uid", d.UserUid));
+                    created.Add(new { d.Username, d.UserUid });
+                }
+            }
+            else
+            {
+                var claims = await um.GetClaimsAsync(existing);
+                if (!claims.Any(c => c.Type == "uid"))
+                {
+                    await um.AddClaimAsync(existing, new Claim("uid", d.UserUid));
+                    created.Add(new { d.Username, d.UserUid, updated = true });
+                }
             }
         }
-        else
+
+        return Results.Ok(new { message = "Driver users seeded.", created });
+    }).AllowAnonymous();
+
+    app.MapGet("/dev/user-info/{username}",
+        async (string username,
+               UserManager<IdentityUser> um,
+               AuthAuditService auditService,
+               HttpContext httpContext) =>
         {
-            // Check if uid claim exists, if not add it
-            var claims = await um.GetClaimsAsync(existing);
-            if (!claims.Any(c => c.Type == "uid"))
-            {
-                await um.AddClaimAsync(existing, new Claim("uid", d.UserUid));
-                created.Add(new { d.Username, d.UserUid, updated = true });
-            }
-        }
-    }
-
-    return Results.Ok(new { message = "Driver users seeded.", created });
-}).AllowAnonymous();
-
-// Diagnostic endpoint to check user roles and claims
-app.MapGet("/dev/user-info/{username}",
-    async (string username,
-           UserManager<IdentityUser> um,
-           AuthAuditService auditService,
-           HttpContext httpContext) =>
-    {
-    var user = await um.FindByNameAsync(username);
-    if (user is null)
-    {
-        await auditService.LogEventAsync(httpContext, username, "role_assignment", "failure");
-        return Results.NotFound(new { error = $"User '{username}' not found." });
-    }
-
-    var roles = await um.GetRolesAsync(user);
-    var claims = await um.GetClaimsAsync(user);
-
-    // Check for driver-specific configuration
-    var hasDriverRole = roles.Contains("driver");
-    var uidClaim = claims.FirstOrDefault(c => c.Type == "uid");
-    var emailClaim = claims.FirstOrDefault(c => c.Type == "email");
-    
-    // Simulate what the JWT would contain (Phase 1 structure)
-    var jwtClaimsPreview = new List<object>
-    {
-        new { Type = "sub", Value = user.UserName },
-        new { Type = "uid", Value = uidClaim?.Value ?? user.Id },
-        new { Type = "userId", Value = user.Id }  // PHASE 1: Always Identity GUID
-    };
-    
-    // Add roles to preview
-    foreach (var role in roles)
-    {
-        jwtClaimsPreview.Add(new { Type = "role", Value = role });
-    }
-    
-    // Add email if available
-    if (emailClaim != null || !string.IsNullOrEmpty(user.Email))
-    {
-        jwtClaimsPreview.Add(new { Type = "email", Value = emailClaim?.Value ?? user.Email });
-    }
-    
-    return Results.Ok(new
-    {
-        userId = user.Id,
-        username = user.UserName,
-        email = user.Email,
-        roles = roles,
-        userClaims = claims.Select(c => new { c.Type, c.Value }).ToList(),
-        // PHASE 1: Preview of JWT claims structure
-        jwtClaimsPreview,
-        // Diagnostic flags
-        diagnostics = new
+        var user = await um.FindByNameAsync(username);
+        if (user is null)
         {
-            hasDriverRole,
-            hasCustomUid = uidClaim != null,
-            customUidValue = uidClaim?.Value,
-            identityGuid = user.Id,
-            hasEmail = emailClaim != null || !string.IsNullOrEmpty(user.Email),
-            phase1Ready = true,
-            notes = new
-            {
-                uidClaim = uidClaim != null 
-                    ? "Custom UID will override default in JWT (driver pattern)" 
-                    : "JWT will use Identity GUID for uid claim",
-                userIdClaim = "Phase 1: userId claim always contains Identity GUID for audit tracking",
-                auditRecommendation = "AdminAPI should use 'userId' claim for CreatedByUserId field"
-            }
+            await auditService.LogEventAsync(httpContext, username, "role_assignment", "failure");
+            return Results.NotFound(new { error = $"User '{username}' not found." });
         }
-    });
-}).AllowAnonymous();
+
+        var roles = await um.GetRolesAsync(user);
+        var claims = await um.GetClaimsAsync(user);
+
+        var hasDriverRole = roles.Contains("driver");
+        var uidClaim = claims.FirstOrDefault(c => c.Type == "uid");
+        var emailClaim = claims.FirstOrDefault(c => c.Type == "email");
+
+        var jwtClaimsPreview = new List<object>
+        {
+            new { Type = "sub", Value = user.UserName },
+            new { Type = "uid", Value = uidClaim?.Value ?? user.Id },
+            new { Type = "userId", Value = user.Id }
+        };
+
+        foreach (var role in roles)
+            jwtClaimsPreview.Add(new { Type = "role", Value = role });
+
+        if (emailClaim != null || !string.IsNullOrEmpty(user.Email))
+            jwtClaimsPreview.Add(new { Type = "email", Value = emailClaim?.Value ?? user.Email });
+
+        return Results.Ok(new
+        {
+            userId = user.Id,
+            username = user.UserName,
+            email = user.Email,
+            roles = roles,
+            userClaims = claims.Select(c => new { c.Type, c.Value }).ToList(),
+            jwtClaimsPreview,
+            diagnostics = new
+            {
+                hasDriverRole,
+                hasCustomUid = uidClaim != null,
+                customUidValue = uidClaim?.Value,
+                identityGuid = user.Id,
+                hasEmail = emailClaim != null || !string.IsNullOrEmpty(user.Email),
+                phase1Ready = true,
+                notes = new
+                {
+                    uidClaim = uidClaim != null
+                        ? "Custom UID will override default in JWT (driver pattern)"
+                        : "JWT will use Identity GUID for uid claim",
+                    userIdClaim = "Phase 1: userId claim always contains Identity GUID for audit tracking",
+                    auditRecommendation = "AdminAPI should use 'userId' claim for CreatedByUserId field"
+                }
+            }
+        });
+    }).AllowAnonymous();
+}
 
 // PHASE 2: Role assignment endpoint (admin-only) - DEPRECATED
 // This endpoint is maintained for backward compatibility only
@@ -751,7 +763,7 @@ app.MapGet("/health/ready", async (ApplicationDbContext db, SigningKeyState sign
     });
 }).AllowAnonymous();
 
-// Backward-compatible aliases � kept for Alpha test scripts and docs
+// Backward-compatible aliases � kept for Alpha test scripts and docs
 // TODO(beta-cleanup): remove once all scripts/docs reference /health/live and /health/ready
 app.MapGet("/health", (HttpContext context) =>
 {
