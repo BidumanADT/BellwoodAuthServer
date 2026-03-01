@@ -102,7 +102,16 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+    // Log the resolved connection string so that relative-path confusion is visible in logs.
+    var connString = db.Database.GetConnectionString();
+    Log.Information("DB: {ConnectionString}", connString);
+
+    // Apply any pending Entity Framework migrations.
     await db.Database.MigrateAsync();
+
+    // Ensure that critical tables exist even if a prior migration was empty or skipped.
+    BellwoodAuthServer.Data.AuthSchemaInitializer.EnsureAuditTableExists(db);
 
     var um = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
     var rm = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
