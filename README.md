@@ -11,13 +11,13 @@ A production-ready authentication server for the Bellwood Global chauffeur and l
 
 Bellwood AuthServer is the central identity provider powering the Bellwood ecosystem, enabling:
 
-- ?? **JWT Authentication** – Secure token-based authentication for all Bellwood applications
-- ?? **Role-Based Authorization** – Support for `admin`, `driver`, and `booker` roles with custom claims
-- ?? **Custom Claims Management** – User-specific claims (uid, email) for cross-service integration
-- ?? **Refresh Token Support** – Long-lived sessions with token rotation
-- ?? **Multi-Application Support** – Single identity source for AdminPortal, PassengerApp, and DriverApp
-- ??? **Admin Management** – RESTful endpoints for user and claim management
-- ?? **Test User Seeding** – Auto-provisioned test accounts for rapid development
+- ?? **JWT Authentication** â€“ Secure token-based authentication for all Bellwood applications
+- ?? **Role-Based Authorization** â€“ Support for `admin`, `driver`, and `booker` roles with custom claims
+- ?? **Custom Claims Management** â€“ User-specific claims (uid, email) for cross-service integration
+- ?? **Refresh Token Support** â€“ Long-lived sessions with token rotation
+- ?? **Multi-Application Support** â€“ Single identity source for AdminPortal, PassengerApp, and DriverApp
+- ??? **Admin Management** â€“ RESTful endpoints for user and claim management
+- ?? **Test User Seeding** â€“ Auto-provisioned test accounts for rapid development
 
 ## Architecture
 
@@ -51,9 +51,9 @@ The Bellwood ecosystem consists of five interconnected components:
 
 ### Core Features
 
-- **JWT Token Issuance:** Standard JWT Bearer tokens with HS256 signing; configurable expiration (default: 1 hour); includes username (`sub`), user ID (`uid`), email, and role claims.
-- **ASP.NET Core Identity:** Full Identity framework integration; SQLite database storage (`bellwood-auth.db`); support for roles, claims, and user management.
-- **Role-Based Authorization:** Pre-configured roles: `admin`, `driver`, `booker`; automatic role claim injection into JWT tokens; extensible for additional roles.
+- **JWT Token Issuance:** Standard JWT Bearer tokens with HS256 signing; configurable expiration (default: 1 hour); includes `userId` (Identity GUID), `uid`, `sub`, email, and flat string `role` claims.
+- **ASP.NET Core Identity:** Full Identity framework integration; SQLite database storage under `App_Data/authserver/alpha.db` (or `AuthServer:DbPath` override); support for roles, claims, and user management.
+- **Role-Based Authorization:** Pre-configured roles: `admin`, `dispatcher`, `driver`, `booker`; automatic role claim injection into JWT tokens; extensible for additional roles.
 - **Custom Claims:** `uid` claim links drivers to AdminAPI Driver records; `email` claim enables passenger authorization in AdminAPI; claims are persistent and user-specific.
 - **Refresh Token Support:** In-memory refresh token storage; one-time use tokens with automatic rotation; `RefreshTokenStore` service for token management.
 - **Test User Auto-Seeding:** Automatic creation of test users on startup; includes alice/bob (admins), chris (booker), charlie (driver); idempotent seeding logic (safe to restart).
@@ -63,6 +63,35 @@ The Bellwood ecosystem consists of five interconnected components:
 - **Admin Endpoints:** Create driver users with custom uid claims; update user uid claims; list all driver users; delete driver users; find users by uid.
 - **Diagnostic Endpoints:** `/dev/user-info/{username}` shows roles, claims, and diagnostics; helps troubleshoot authorization issues; shows warnings for missing roles/claims.
 - **Health Endpoints:** `/health` and `/healthz` for monitoring; anonymous access for load balancers and orchestrators.
+
+## AuthServer Integration Contract (AdminApi/AdminPortal)
+
+### JWT claim requirements
+
+- `userId` **must always be present** and must equal the ASP.NET Identity user GUID (`IdentityUser.Id`).
+- `uid` may be a custom integration identifier for specific clients (for example driver integration), but `userId` remains the authoritative identity GUID.
+- `sub` is included for compatibility.
+- `role` claims are emitted as flat strings (for example `booker`, `admin`, `dispatcher`) so downstream role checks can evaluate them directly.
+- AdminApi resolves identity in this order: `userId` -> `uid` -> `sub`.
+
+### Profile update endpoint alignment
+
+AuthServer exposes the profile endpoint consumed by AdminApi/AdminPortal as:
+
+- `PUT /api/bookers/me`
+  - Requires a valid Bellwood JWT.
+  - Updates the caller's own booker profile.
+  - `firstName` and `lastName` are required.
+  - `phoneNumber` and `emailAddress` are optional (`null` clears each field).
+  - Returns the updated profile payload (`userId`, `firstName`, `lastName`, `phoneNumber`, `emailAddress`, `createdUtc`, `modifiedUtc`, `displayName`).
+
+`/profile` is an AdminApi alias that forwards to this contract.
+
+### Database path configuration
+
+- Default runtime path: `AppContext.BaseDirectory/App_Data/authserver/alpha.db`.
+- Override path with `AuthServer:DbPath` (environment variable `AuthServer__DbPath`).
+- Local development profiles include `AuthServer__DbPath=App_Data/authserver/alpha.db` to keep a stable location across restarts.
 
 ## Project Structure
 
@@ -98,15 +127,15 @@ BellwoodAuthServer/
 
 ### Core Documentation
 
-- `Docs/AuthServer-Summary.md` – Complete feature matrix and API reference
-- `Docs/SOLUTION-SUMMARY.md` – System architecture and integration guide
+- `Docs/AuthServer-Summary.md` â€“ Complete feature matrix and API reference
+- `Docs/SOLUTION-SUMMARY.md` â€“ System architecture and integration guide
 
 ### Troubleshooting Guides
 
-- `Docs/Charlie-403-Fix.md` – Driver authorization troubleshooting
-- `Docs/Testing-Charlie.md` – Step-by-step driver testing
-- `Docs/AdminAPI-403-Fix.md` – AdminAPI integration fixes
-- `Docs/Troubleshooting-403.md` – General 403 error diagnosis
+- `Docs/Charlie-403-Fix.md` â€“ Driver authorization troubleshooting
+- `Docs/Testing-Charlie.md` â€“ Step-by-step driver testing
+- `Docs/AdminAPI-403-Fix.md` â€“ AdminAPI integration fixes
+- `Docs/Troubleshooting-403.md` â€“ General 403 error diagnosis
 
 **Total**: 7+ comprehensive documents (~15,000 words)
 
@@ -813,13 +842,13 @@ expires: DateTime.UtcNow.AddHours(1)  // 1 hour lifetime
 **Location:** `./bellwood-auth.db` (project root)
 
 **Schema:** ASP.NET Core Identity default schema
-- `AspNetUsers` – User accounts
-- `AspNetRoles` – Roles (admin, driver, booker)
-- `AspNetUserRoles` – User-role assignments
-- `AspNetUserClaims` – Custom claims (uid, email)
-- `AspNetRoleClaims` – Role-based claims (not used)
-- `AspNetUserLogins` – External logins (not used)
-- `AspNetUserTokens` – Identity tokens (not used)
+- `AspNetUsers` â€“ User accounts
+- `AspNetRoles` â€“ Roles (admin, driver, booker)
+- `AspNetUserRoles` â€“ User-role assignments
+- `AspNetUserClaims` â€“ Custom claims (uid, email)
+- `AspNetRoleClaims` â€“ Role-based claims (not used)
+- `AspNetUserLogins` â€“ External logins (not used)
+- `AspNetUserTokens` â€“ Identity tokens (not used)
 
 **Migrations:** Managed via EF Core migrations in `Migrations/` folder
 
@@ -1088,7 +1117,7 @@ Available at `https://localhost:5001/swagger` for interactive API testing.
 
 ## Branches
 
-- **main** – Stable production code
+- **main** â€“ Stable production code
 
 ## Support
 
@@ -1116,4 +1145,4 @@ For issues or questions:
 
 **Built with care using .NET 8 ASP.NET Core Identity + JWT**
 
-*© 2025 Biduman ADT / Bellwood Global. All rights reserved.*
+*Â© 2025 Biduman ADT / Bellwood Global. All rights reserved.*

@@ -24,6 +24,25 @@ builder.Host.UseSerilog();
 
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection("Email"));
 
+var configuredDbPath = builder.Configuration["AuthServer:DbPath"];
+var resolvedDbPath = string.IsNullOrWhiteSpace(configuredDbPath)
+    ? Path.Combine(AppContext.BaseDirectory, "App_Data", "authserver", "alpha.db")
+    : configuredDbPath;
+
+if (!Path.IsPathRooted(resolvedDbPath))
+{
+    resolvedDbPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, resolvedDbPath));
+}
+
+var resolvedDbDirectory = Path.GetDirectoryName(resolvedDbPath);
+if (!string.IsNullOrWhiteSpace(resolvedDbDirectory))
+{
+    Directory.CreateDirectory(resolvedDbDirectory);
+}
+
+builder.Configuration["ConnectionStrings:DefaultConnection"] = $"Data Source={resolvedDbPath}";
+Log.Information("Resolved AuthServer SQLite path: {DbPath}", resolvedDbPath);
+
 // Bind to the ports
 builder.WebHost.UseUrls("https://localhost:5001", "http://localhost:5000");
 
