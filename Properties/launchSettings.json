@@ -1,10 +1,11 @@
-﻿{
+{
   "profiles": {
     "SelfHost": {
       "commandName": "Project",
       "launchBrowser": true,
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "AuthServer__DbPath": "App_Data/authserver/alpha.db"
       },
       "applicationUrl": "https://localhost:5001"
     },
@@ -13,7 +14,8 @@
       "launchBrowser": true,
       "applicationUrl": "https://localhost:5001",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Alpha"
+        "ASPNETCORE_ENVIRONMENT": "Alpha",
+        "AuthServer__DbPath": "App_Data/authserver/alpha.db"
       }
     }
   }
