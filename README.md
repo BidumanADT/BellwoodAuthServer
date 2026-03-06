@@ -1141,6 +1141,42 @@ For issues or questions:
 ? **Multi-Application Support** (AdminPortal, PassengerApp, DriverApp)  
 ? **Production-Ready** with comprehensive documentation and testing guides  
 
+## Docker (ECS Fargate)
+
+Build and push the container image:
+
+```bash
+cd BellwoodAuthServer
+docker build -t bellwood-authserver .
+
+# Tag & push to ECR
+aws ecr get-login-password --region REGION | docker login --username AWS --password-stdin ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com
+docker tag bellwood-authserver:latest ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/bellwood-authserver:latest
+docker push ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/bellwood-authserver:latest
+```
+
+The container listens on port **8080** (`ASPNETCORE_URLS=http://+:8080`).
+An `/app/App_Data` directory is created in the image for the SQLite database.
+
+### ECS Task Definition
+
+Template: `infra/ecs/task-definition.json`
+
+**Placeholders to replace:**
+
+| Placeholder | Description |
+|---|---|
+| `ACCOUNT_ID` | AWS account ID |
+| `REGION` | AWS region (e.g. `us-east-1`) |
+| `EXECUTION_ROLE_NAME` | IAM role for ECS task execution (ECR pull + SSM read) |
+| `TASK_ROLE_NAME` | IAM role for the running task |
+
+**SSM parameters required:**
+
+- `/bellwood/alpha/authserver/jwt-key` - JWT signing key (must match across all services)
+- `/bellwood/alpha/authserver/bootstrap-admin-email` - Initial admin email
+- `/bellwood/alpha/authserver/bootstrap-admin-password` - Initial admin password
+
 ---
 
 **Built with care using .NET 8 ASP.NET Core Identity + JWT**
