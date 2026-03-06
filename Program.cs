@@ -43,8 +43,12 @@ if (!string.IsNullOrWhiteSpace(resolvedDbDirectory))
 builder.Configuration["ConnectionStrings:DefaultConnection"] = $"Data Source={resolvedDbPath}";
 Log.Information("Resolved AuthServer SQLite path: {DbPath}", resolvedDbPath);
 
-// Bind to the ports
-builder.WebHost.UseUrls("https://localhost:5001", "http://localhost:5000");
+// Bind to ports in local dev only.
+// In non-Development (ECS, etc.) ASPNETCORE_URLS / port bindings come from the container host.
+if (builder.Environment.IsDevelopment())
+{
+    builder.WebHost.UseUrls("https://localhost:5001", "http://localhost:5000");
+}
 
 // EF Core + Identity (SQLite)
 builder.Services.AddDbContext<ApplicationDbContext>(opt =>
@@ -63,9 +67,36 @@ builder.Services
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddSignInManager();
 
-// JWT signing key + validation (must match Rides API key)
-var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("super-long-jwt-signing-secret-1234"));
-var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+// JWT signing key — loaded from configuration (Jwt:Key).
+/// In AWS ECS supply via the Jwt__Key environment variable (double-underscore = colon in .NET config).
+/// In local dev, set Jwt:Key in appsettings.Development.json or user-secrets (never commit the key).
+var jwtKeyValue = builder.Configuration["Jwt:Key"];
+
+if (string.IsNullOrWhiteSpace(jwtKeyValue))
+{
+    if (builder.Environment.IsDevelopment())
+    {
+        // Allow dev to keep running with the legacy fallback so existing local setups don't break.
+        jwtKeyValue = "super-long-jwt-signing-secret-1234";
+        Log.Warning("JWT: Jwt:Key not configured — using insecure development fallback. " +
+                    "Set Jwt:Key in appsettings.Development.json or user-secrets before sharing tokens.");
+    }
+    else
+    {
+        // Hard fail in any non-Development environment: a missing key is a misconfiguration, not a warning.
+        Log.Fatal("JWT: Jwt:Key is not configured. " +
+                  "Set the Jwt__Key environment variable (ECS task definition / Secrets Manager) before starting. Aborting.");
+        throw new InvalidOperationException(
+            "Jwt:Key must be configured in non-Development environments. " +
+            "Set the Jwt__Key environment variable.");
+    }
+}
+
+Log.Information("JWT: Signing key loaded from configuration ({Source}).",
+    builder.Configuration["Jwt:Key"] is not null ? "Jwt:Key" : "dev-fallback");
+
+var key  = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKeyValue));
+var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256;
 
 builder.Services
   .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
