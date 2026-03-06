@@ -11,11 +11,11 @@ permissions:
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
-  ECR_REPOSITORY: ${{ vars.AUTHSERVER_ECR_REPOSITORY }}
-  ECS_CLUSTER: ${{ vars.AUTHSERVER_ECS_CLUSTER }}
-  ECS_SERVICE: ${{ vars.AUTHSERVER_ECS_SERVICE }}
-  ECS_TASK_DEFINITION: .aws/task-definitions/authserver-task-definition.json
-  CONTAINER_NAME: authserver
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+  ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+  ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+  ECS_TASK_DEFINITION_PATH: ${{ vars.ECS_TASK_DEFINITION_PATH }}
+  ECS_CONTAINER_NAME: ${{ vars.ECS_CONTAINER_NAME }}
 
 jobs:
   deploy:
@@ -25,6 +25,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate required workflow variables
+        run: |
+          test -n "${AWS_REGION}" || (echo "Missing vars.AWS_REGION" && exit 1)
+          test -n "${ECR_REPOSITORY}" || (echo "Missing vars.ECR_REPOSITORY" && exit 1)
+          test -n "${ECS_CLUSTER}" || (echo "Missing vars.ECS_CLUSTER" && exit 1)
+          test -n "${ECS_SERVICE}" || (echo "Missing vars.ECS_SERVICE" && exit 1)
+          test -n "${ECS_TASK_DEFINITION_PATH}" || (echo "Missing vars.ECS_TASK_DEFINITION_PATH" && exit 1)
+          test -n "${ECS_CONTAINER_NAME}" || (echo "Missing vars.ECS_CONTAINER_NAME" && exit 1)
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -51,8 +60,8 @@ jobs:
         id: render-task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition: ${{ env.ECS_TASK_DEFINITION }}
-          container-name: ${{ env.CONTAINER_NAME }}
+          task-definition: ${{ env.ECS_TASK_DEFINITION_PATH }}
+          container-name: ${{ env.ECS_CONTAINER_NAME }}
           image: ${{ steps.build-image.outputs.image }}
 
       - name: Deploy Amazon ECS task definition
