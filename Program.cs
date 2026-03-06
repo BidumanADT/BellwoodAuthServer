@@ -43,8 +43,12 @@ if (!string.IsNullOrWhiteSpace(resolvedDbDirectory))
 builder.Configuration["ConnectionStrings:DefaultConnection"] = $"Data Source={resolvedDbPath}";
 Log.Information("Resolved AuthServer SQLite path: {DbPath}", resolvedDbPath);
 
-// Bind to the ports
-builder.WebHost.UseUrls("https://localhost:5001", "http://localhost:5000");
+// Bind to ports in local dev only.
+// In non-Development (ECS, etc.) ASPNETCORE_URLS / port bindings come from the container host.
+if (builder.Environment.IsDevelopment())
+{
+    builder.WebHost.UseUrls("https://localhost:5001", "http://localhost:5000");
+}
 
 // EF Core + Identity (SQLite)
 builder.Services.AddDbContext<ApplicationDbContext>(opt =>
@@ -63,9 +67,36 @@ builder.Services
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddSignInManager();
 
-// JWT signing key + validation (must match Rides API key)
-var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes("super-long-jwt-signing-secret-1234"));
-var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+// JWT signing key — loaded from configuration (Jwt:Key).
+/// In AWS ECS supply via the Jwt__Key environment variable (double-underscore = colon in .NET config).
+/// In local dev, set Jwt:Key in appsettings.Development.json or user-secrets (never commit the key).
+var jwtKeyValue = builder.Configuration["Jwt:Key"];
+
+if (string.IsNullOrWhiteSpace(jwtKeyValue))
+{
+    if (builder.Environment.IsDevelopment())
+    {
+        // Allow dev to keep running with the legacy fallback so existing local setups don't break.
+        jwtKeyValue = "super-long-jwt-signing-secret-1234";
+        Log.Warning("JWT: Jwt:Key not configured — using insecure development fallback. " +
+                    "Set Jwt:Key in appsettings.Development.json or user-secrets before sharing tokens.");
+    }
+    else
+    {
+        // Hard fail in any non-Development environment: a missing key is a misconfiguration, not a warning.
+        Log.Fatal("JWT: Jwt:Key is not configured. " +
+                  "Set the Jwt__Key environment variable (ECS task definition / Secrets Manager) before starting. Aborting.");
+        throw new InvalidOperationException(
+            "Jwt:Key must be configured in non-Development environments. " +
+            "Set the Jwt__Key environment variable.");
+    }
+}
+
+Log.Information("JWT: Signing key loaded from configuration ({Source}).",
+    builder.Configuration["Jwt:Key"] is not null ? "Jwt:Key" : "dev-fallback");
+
+var key  = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKeyValue));
+var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256;
 
 builder.Services
   .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -349,6 +380,51 @@ using (var scope = app.Services.CreateScope())
 app.UseSerilogRequestLogging();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<RequestLoggingMiddleware>();
+
+// Forwarded headers — must come before UseHttpsRedirection to avoid redirect loops behind ALB.
+// Enabled via ForwardedHeaders:Enabled (set true in appsettings.Alpha.json or ASPNETCORE env var).
+// Restrict trusted proxies to a VPC CIDR via ForwardedHeaders:KnownNetworks env var when possible.
+if (app.Configuration.GetValue<bool>("ForwardedHeaders:Enabled"))
+{
+    var fhOptions = new Microsoft.AspNetCore.HttpOverrides.ForwardedHeadersOptions
+    {
+        ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+                         | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
+    };
+
+    var knownNetwork = app.Configuration["ForwardedHeaders:KnownNetworks"];
+    if (!string.IsNullOrWhiteSpace(knownNetwork))
+    {
+        // Parse "10.0.0.0/8" → prefix + prefix-length and register as a trusted network.
+        var parts = knownNetwork.Trim().Split('/');
+        if (parts.Length == 2
+            && System.Net.IPAddress.TryParse(parts[0], out var prefix)
+            && int.TryParse(parts[1], out var prefixLength))
+        {
+            fhOptions.KnownNetworks.Clear();    // remove loopback-only default
+            fhOptions.KnownNetworks.Add(new Microsoft.AspNetCore.HttpOverrides.IPNetwork(prefix, prefixLength));
+            Log.Information("ForwardedHeaders: trusting network {Network}", knownNetwork);
+        }
+        else
+        {
+            Log.Warning("ForwardedHeaders: KnownNetworks value '{Value}' could not be parsed — " +
+                        "falling back to accepting any proxy. Fix ForwardedHeaders__KnownNetworks.", knownNetwork);
+        }
+    }
+    else
+    {
+        // No CIDR configured: clear the default (loopback-only) restriction so the ALB is trusted.
+        // Acceptable for Alpha; set KnownNetworks to the VPC CIDR before going to production.
+        fhOptions.KnownNetworks.Clear();
+        fhOptions.KnownProxies.Clear();
+        Log.Warning("ForwardedHeaders: no KnownNetworks configured — trusting all proxies (Alpha only). " +
+                    "Set ForwardedHeaders__KnownNetworks to your VPC CIDR before production.");
+    }
+
+    app.UseForwardedHeaders(fhOptions);
+    Log.Information("ForwardedHeaders middleware enabled.");
+}
+
 app.UseHttpsRedirection();
 app.UseSwagger();
 app.UseSwaggerUI();
