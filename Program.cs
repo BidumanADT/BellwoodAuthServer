@@ -2,6 +2,8 @@ using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using BellwoodAuthServer.Data;
@@ -96,7 +98,7 @@ Log.Information("JWT: Signing key loaded from configuration ({Source}).",
     builder.Configuration["Jwt:Key"] is not null ? "Jwt:Key" : "dev-fallback");
 
 var key  = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKeyValue));
-var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256;
+var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
 builder.Services
   .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -386,11 +388,9 @@ app.UseMiddleware<RequestLoggingMiddleware>();
 // Restrict trusted proxies to a VPC CIDR via ForwardedHeaders:KnownNetworks env var when possible.
 if (app.Configuration.GetValue<bool>("ForwardedHeaders:Enabled"))
 {
-    var fhOptions = new Microsoft.AspNetCore.HttpOverrides.ForwardedHeadersOptions
-    {
-        ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
-                         | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
-    };
+    var fhOptions = new ForwardedHeadersOptions();
+    fhOptions.ForwardedHeaders = ForwardedHeaders.XForwardedFor
+                               | ForwardedHeaders.XForwardedProto;
 
     var knownNetwork = app.Configuration["ForwardedHeaders:KnownNetworks"];
     if (!string.IsNullOrWhiteSpace(knownNetwork))
