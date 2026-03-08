@@ -1,15 +1,15 @@
 {
   "family": "bellwood-authserver",
   "networkMode": "awsvpc",
-  "requiresCompatibilities": ["FARGATE"],
+  "requiresCompatibilities": [ "FARGATE" ],
   "cpu": "256",
   "memory": "512",
-  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/EXECUTION_ROLE_NAME",
-  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/TASK_ROLE_NAME",
+  "executionRoleArn": "arn:aws:iam::105319843299:role/bellwood-ecs-task-execution-role",
+  "taskRoleArn": "arn:aws:iam::105319843299:role/bellwood-authserver-task-role",
   "containerDefinitions": [
     {
       "name": "bellwood-authserver",
-      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/bellwood-authserver:latest",
+      "image": "105319843299.dkr.ecr.us-east-1.amazonaws.com/bellwood-authserver:latest",
       "essential": true,
       "portMappings": [
         {
@@ -34,27 +34,27 @@
       "secrets": [
         {
           "name": "Jwt__Key",
-          "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/bellwood/alpha/authserver/jwt-key"
+          "valueFrom": "arn:aws:ssm:us-east-1:105319843299:parameter/bellwood/alpha/authserver/jwt-key"
         },
         {
           "name": "BootstrapAdmin__Email",
-          "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/bellwood/alpha/authserver/bootstrap-admin-email"
+          "valueFrom": "arn:aws:ssm:us-east-1:105319843299:parameter/bellwood/alpha/authserver/bootstrap-admin-email"
         },
         {
           "name": "BootstrapAdmin__Password",
-          "valueFrom": "arn:aws:ssm:REGION:ACCOUNT_ID:parameter/bellwood/alpha/authserver/bootstrap-admin-password"
+          "valueFrom": "arn:aws:ssm:us-east-1:105319843299:parameter/bellwood/alpha/authserver/bootstrap-admin-password"
         }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
           "awslogs-group": "/ecs/bellwood-authserver",
-          "awslogs-region": "REGION",
+          "awslogs-region": "us-east-1",
           "awslogs-stream-prefix": "ecs"
         }
       },
       "healthCheck": {
-        "command": ["CMD-SHELL", "curl -f http://localhost:8080/health/live || exit 1"],
+        "command": [ "CMD-SHELL", "curl -f http://localhost:8080/health/live || exit 1" ],
         "interval": 30,
         "timeout": 5,
         "retries": 3,
