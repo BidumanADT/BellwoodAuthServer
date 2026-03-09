@@ -29,6 +29,10 @@
         {
           "name": "ForwardedHeaders__Enabled",
           "value": "true"
+        },
+        {
+          "name": "ASPNETCORE_FORWARDEDHEADERS_ENABLED",
+          "value": "true"
         }
       ],
       "secrets": [
