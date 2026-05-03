@@ -11,6 +11,13 @@
       "name": "bellwood-authserver",
       "image": "105319843299.dkr.ecr.us-east-1.amazonaws.com/bellwood-authserver:latest",
       "essential": true,
+      "mountPoints": [
+        {
+          "sourceVolume": "authserver-data",
+          "containerPath": "/data",
+          "readOnly": false
+        }
+      ],
       "portMappings": [
         {
           "containerPort": 8080,
@@ -33,6 +40,10 @@
         {
           "name": "ASPNETCORE_FORWARDEDHEADERS_ENABLED",
           "value": "true"
+        },
+        {
+          "name": "AuthServer__DbPath",
+          "value": "/data/authserver/alpha.db"
         }
       ],
       "secrets": [
@@ -56,6 +67,15 @@
           "awslogs-region": "us-east-1",
           "awslogs-stream-prefix": "ecs"
         }
+      }
+    }
+  ],
+  "volumes": [
+    {
+      "name": "authserver-data",
+      "efsVolumeConfiguration": {
+        "fileSystemId": "fs-039d3cbe73487b35d",
+        "rootDirectory": "/"
       }
     }
   ]
