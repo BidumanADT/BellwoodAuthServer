@@ -27,13 +27,17 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate required workflow variables
-        run: |
-          test -n "${AWS_REGION}" || (echo "Missing vars.AWS_REGION" && exit 1)
-          test -n "${ECR_REPOSITORY}" || (echo "Missing vars.ECR_REPOSITORY" && exit 1)
-          test -n "${ECS_CLUSTER}" || (echo "Missing vars.ECS_CLUSTER" && exit 1)
-          test -n "${ECS_SERVICE}" || (echo "Missing vars.ECS_SERVICE" && exit 1)
-          test -n "${ECS_TASK_DEFINITION_PATH}" || (echo "Missing vars.ECS_TASK_DEFINITION_PATH" && exit 1)
-          test -n "${ECS_CONTAINER_NAME}" || (echo "Missing vars.ECS_CONTAINER_NAME" && exit 1)
+        run: |          
+            set -euo pipefail
+
+                required=(AWS_REGION ECR_REPOSITORY ECS_CLUSTER ECS_SERVICE ECS_TASK_DEFINITION_PATH ECS_CONTAINER_NAME)
+                for v in "${required[@]}"; do
+                  if [ -z "${!v:-}" ]; then
+                    echo "? Missing required variable: $v"
+                    exit 1
+                  fi
+                  echo "? $v=${!v}"
+                done
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -71,3 +75,12 @@ jobs:
           service: ${{ env.ECS_SERVICE }}
           cluster: ${{ env.ECS_CLUSTER }}
           wait-for-service-stability: true
+
+      - name: Dump ECS service events on failure
+        if: failure()
+        run: |
+            aws ecs describe-services \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE" \
+            --query "services[0].events[0:20].[createdAt,message]" \
+            --output table
