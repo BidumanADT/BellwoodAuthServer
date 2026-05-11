@@ -74,7 +74,7 @@
     {
       "name": "authserver-data",
       "efsVolumeConfiguration": {
-        "fileSystemId": "fs-039d3cbe73487b35d",
+        "fileSystemId": "fs-0f13f02c13b7f4f37",
         "rootDirectory": "/"
       }
     }
